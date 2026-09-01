@@ -93,9 +93,12 @@ python scripts/predict.py --model runs/semisup/model_best.pt \
 | 阶段 | SROCC | PLCC | OBJ | 备注 |
 |---|---|---|---|---|
 | baseline（合成数据，56 视频，8 epoch） | 0.9222 | 0.9241 | 1.8462 | 验证划分 8 个 |
-| 半监督（2 轮伪标签） | — | — | — | 待回填 |
+| 半监督（2 轮伪标签，best=第 1 轮） | 0.8333 | 0.9436 | 1.7769 | 锁定验证集 8 个；伪标签累积 10 个 |
 
-（上表由 `runs/` 下的 `metrics.json` 汇总，真实课程数据到达后在此更新正式结果。）
+> 说明：半监督自测中 30% 标注被隐藏模拟未标注场景（训练标注 34 个，少于 baseline 的 48 个），
+> 故 SROCC 略低于 baseline、PLCC 更高——符合"少量标注 + 伪标签扩充"的预期；
+> 全量标注上 best 模型 SROCC=0.9098 / PLCC=0.9016。真实课程数据（DIVIDE-MaxWell）标注到达后在此更新正式结果。
+> 完整历史见 `runs/semisup/metrics.json`。
 
 ## 算力与耗时约束说明
 
