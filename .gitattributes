@@ -1,0 +1,8 @@
+# 统一行尾：文本文件在仓库中存 LF，检出时按平台
+* text=auto
+*.py text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.json text eol=lf
+*.pt binary
+*.pth binary

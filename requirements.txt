@@ -1,0 +1,8 @@
+# 运行环境：conda env vqa_env（Python 3.9, CUDA 11.8）
+# GPU 版 torch 安装示例（仅全新环境需要，本项目环境已装好）：
+#   pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu118
+torch==2.5.1
+torchvision==0.20.1
+opencv-python>=4.8
+numpy
+scipy

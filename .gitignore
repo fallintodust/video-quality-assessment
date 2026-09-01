@@ -1,0 +1,27 @@
+# 数据与权重（体积大，不入库）
+data/
+runs/
+weights/
+*.mp4
+*.avi
+*.mkv
+*.mov
+*.pt
+*.pth
+
+# 任务书等课程材料
+*.pdf
+pdf_text*.txt
+
+# 推理产物
+score.txt
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.idea/
+.vscode/
+.claude/
