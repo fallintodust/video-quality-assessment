@@ -9,13 +9,13 @@
   - 官方标注下发后运行 `scripts/build_course_labels.py --compare-train ... --compare-test ...` 校验；不一致则用官方文件重训
 - [ ] **确认测试集视频**：答辩前拿到测试视频（放 `data/test_videos/`，`predict.py` 直接出 `score.txt`）
 
-## 🟡 正式训练与调参（拿到标注后）
+## 🟡 正式训练与调参（重建标注已就绪）
 
-- [ ] 正式数据跑 baseline：
-      `python scripts/train_baseline.py --data-dir data/divide/videos --labels data/divide/train_lable_train.txt --epochs 20`
-- [ ] 正式数据跑半监督循环（用 `train_lable_test.txt` 作为锁定验证集评估）
+- [x] 正式数据跑 baseline（进行中，分支 Vzixing）：
+      `python scripts/train_baseline.py --data-dir data/divide/videos --labels data/divide/train_lable_train.txt --val-labels data/divide/train_lable_test.txt --out runs/divide_baseline --fp16 --epochs 12`
+- [ ] 正式数据跑半监督循环（`train_lable_test.txt` 作为锁定验证集；909 个验证视频作为"未标注"进入伪标签池）
 - [ ] 调参实验（记录到 README 结果表）：
-  - [ ] 伪标签方差阈值 `--var-threshold`（默认 25，MOS 量纲）
+  - [ ] 伪标签方差阈值 `--var-threshold`（默认 25 是 0~100 量纲；重建标注为 1~5，需改为 ~0.2）
   - [ ] 伪标签权重 `--pseudo-weight`（默认 0.5）
   - [ ] 每轮独立训练次数 `--n-runs`、抽样比例 `--sub-ratio`
   - [ ] 抽帧数 `--t`（8 ↔ 16）与 batch size
