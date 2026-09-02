@@ -39,6 +39,8 @@ def main():
                    help="独立验证标注文件（锁定验证集；目录中不在训练标注里的视频"
                         "视为'未标注'进入伪标签池）")
     p.add_argument("--fp16", action="store_true", help="fp16 混合精度训练")
+    p.add_argument("--frame-cache", default="",
+                   help="预抽帧缓存目录（scripts/precache_frames.py 生成）")
     p.add_argument("--bs", type=int, default=Config.BATCH_SIZE)
     p.add_argument("--lr", type=float, default=Config.LR)
     p.add_argument("--t", type=int, default=Config.T)
@@ -46,9 +48,10 @@ def main():
     p.add_argument("--log-interval", type=int, default=10)
     args = p.parse_args()
 
-    # 阈值/权重写入全局配置（供 semisup 内部使用）
+    # 阈值/权重/帧缓存写入全局配置（供 semisup 内部使用）
     Config.VAR_THRESHOLD = args.var_threshold
     Config.PSEUDO_WEIGHT = args.pseudo_weight
+    Config.FRAME_CACHE = args.frame_cache or None
     run_semisup(args)
 
 

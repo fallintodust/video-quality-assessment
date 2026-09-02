@@ -45,14 +45,17 @@ def main():
                    help="独立验证标注文件（锁定验证集，如课程 train_lable_test.txt；"
                         "给定后不再从训练标注内部分割）")
     p.add_argument("--fp16", action="store_true", help="fp16 混合精度训练")
+    p.add_argument("--frame-cache", default="",
+                   help="预抽帧缓存目录（scripts/precache_frames.py 生成）")
     p.add_argument("--seed", type=int, default=Config.SEED)
     p.add_argument("--resume", default="", help="从该目录加载权重继续训练")
     p.add_argument("--log-interval", type=int, default=10)
     args = p.parse_args()
 
+    Config.FRAME_CACHE = args.frame_cache or None
     set_seed(args.seed)
     device = get_device()
-    print(f"设备: {device}  fp16: {args.fp16}")
+    print(f"设备: {device}  fp16: {args.fp16}  帧缓存: {Config.FRAME_CACHE or '无'}")
 
     # ---- 数据准备 ----
     labels = parse_labels(args.labels)
