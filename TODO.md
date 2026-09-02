@@ -4,9 +4,9 @@
 
 ## 🔴 阻塞项（等课程提供）
 
-- [ ] **拿到课程标注文件**：`train_lable_train.txt`（训练集标注）、`train_lable_test.txt`（验证集标注）
-  - 不在 HF 压缩包内，需向老师/课程平台索取
-  - 拿到后放到 `data/divide/` 下即可开始正式训练
+- [x] **拿到课程标注文件**：`train_lable_train.txt`（训练集标注）、`train_lable_test.txt`（验证集标注）
+  - 已从原版 MaxWell 仓库（VQAssessment/ExplainableVQA）重建出等效标注并提交到 `data/divide/`（依据：examplar 分值与 O 列 Pearson=1.0，train/test 划分覆盖全部 4543 视频），见 README「标注重建」
+  - 官方标注下发后运行 `scripts/build_course_labels.py --compare-train ... --compare-test ...` 校验；不一致则用官方文件重训
 - [ ] **确认测试集视频**：答辩前拿到测试视频（放 `data/test_videos/`，`predict.py` 直接出 `score.txt`）
 
 ## 🟡 正式训练与调参（拿到标注后）

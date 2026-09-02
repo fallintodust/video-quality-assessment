@@ -43,7 +43,7 @@
 
 | 数据集 | 用途 | 获取 |
 |---|---|---|
-| **官方课程数据集**（DIVIDE-MaxWell） | 正式训练/验证 | 安排文档给定：<https://huggingface.co/datasets/teowu/DIVIDE-MaxWell/resolve/main/videos.zip>（8.55GB），标注 `train_lable_train.txt` / `train_lable_test.txt` 由课程提供 |
+| **官方课程数据集**（DIVIDE-MaxWell） | 正式训练/验证 | 视频（8.55GB）：<https://huggingface.co/datasets/teowu/DIVIDE-MaxWell/resolve/main/videos.zip>；标注 `train_lable_train.txt` / `train_lable_test.txt` 见下方"标注重建" |
 | **合成闪烁数据集**（`scripts/make_flicker_dataset.py`） | 开发自测：亮度闪烁 + 帧冻结卡顿 + 时域噪声，severity → MOS（0~100），失真类型与任务书一致 | 本地生成，秒级 |
 | KoNViD-1k（可选） | 真实 UGC 数据增强泛化 | 见 `scripts/download_konvid.md` |
 
@@ -53,6 +53,29 @@
 video1: 99.0
 video2: 51.6
 ```
+
+### 标注重建（课程标注尚未下发时的方案）
+
+课程标注 `train_lable_train.txt` / `train_lable_test.txt` 原定由课程另行提供；在拿到官方文件前，已从原版 MaxWell 数据集仓库（[VQAssessment/ExplainableVQA](https://github.com/VQAssessment/ExplainableVQA)，ACMMM 2023）重建出等效标注，**已提交在 `data/divide/` 下**（train 3634 条 + test 909 条，恰好覆盖 videos.zip 的全部 4543 个视频）：
+
+- `data/divide/train_lable_train.txt` / `train_lable_test.txt` — 整体 MOS（1~5 量纲）
+- `data/divide/train_lable_train_Tall.txt` / `train_lable_test_Tall.txt` — T-all（时域轴）变体，供官方标注到达后对比"课程 MOS 基于哪一轴"
+
+重建依据与校验（脚本 `scripts/build_course_labels.py` 自动完成）：
+
+1. ExplainableVQA 仓库 `examplar_data_labels/MaxWell/{train,test}_labels.txt` 使用编号视频名（0000.mp4~4542.mp4，与 videos.zip 命名一致），行序与 `MaxWell_{train,val}.csv` 对齐；
+2. 其分值与 CSV 的 O（overall）列满足精确线性关系 `v = 0.929·O + 0.231`（Pearson/Spearman = 1.0000），即分值就是整体 MOS；
+3. train ∪ test 恰好覆盖全部 4543 个视频、无重叠，且与本地视频目录逐一校验通过。
+
+拿到官方标注后运行：
+
+```bash
+python scripts/build_course_labels.py --compare-train 官方_train.txt --compare-test 官方_test.txt
+```
+
+若 SROCC/PLCC ≈ 1 则重建与官方等价，无需重训；否则用官方文件替换 `--labels` / `--val-labels` 重训。
+
+> 注：PLCC/SROCC 对线性变换不敏感，训练用分数的量纲不影响最终指标。
 
 ## 环境安装
 
