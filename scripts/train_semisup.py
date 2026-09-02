@@ -32,8 +32,13 @@ def main():
     p.add_argument("--val-epochs", type=int, default=Config.VAL_EPOCHS)
     p.add_argument("--early-stop", type=int, default=Config.EARLY_STOP)
     p.add_argument("--hide-ratio", type=float, default=Config.HIDE_RATIO,
-                   help="把多少比例的标注样本隐藏为'未标注'（模拟半监督场景）")
+                   help="把多少比例的标注样本隐藏为'未标注'（模拟半监督场景；"
+                        "给定 --val-labels 时忽略）")
     p.add_argument("--val-ratio", type=float, default=Config.VAL_RATIO)
+    p.add_argument("--val-labels", default="",
+                   help="独立验证标注文件（锁定验证集；目录中不在训练标注里的视频"
+                        "视为'未标注'进入伪标签池）")
+    p.add_argument("--fp16", action="store_true", help="fp16 混合精度训练")
     p.add_argument("--bs", type=int, default=Config.BATCH_SIZE)
     p.add_argument("--lr", type=float, default=Config.LR)
     p.add_argument("--t", type=int, default=Config.T)

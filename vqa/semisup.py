@@ -24,28 +24,39 @@ from .train_utils import (build_model, eval_loss, load_checkpoint,
                           train_one_epoch)
 
 
-def split_labeled(labels, val_ratio, hide_ratio, seed, video_dir, out_dir):
+def split_labeled(labels, val_ratio, hide_ratio, seed, video_dir, out_dir,
+                  val_labels=None):
     """划分标注数据：验证集(锁定) / 训练标注集 / 隐藏(视为未标注) / 无标注视频。
+
+    val_labels 给定（独立验证标注文件）时：训练集 = 全部 labels，
+    验证集 = val_labels（锁定），未标注 = 目录中不在 labels 里的视频；
+    hide_ratio 仅在未给 val_labels 时生效。
 
     返回 (train_labels, val_labels, hidden_names, unlabeled_names)
     """
-    names = sorted(labels.keys())
-    rng = random.Random(seed)
-    rng.shuffle(names)
-    n_val = max(1, int(len(names) * val_ratio))
-    val_names = names[:n_val]
-    rest = names[n_val:]
-    n_hide = int(len(rest) * hide_ratio)
-    hidden_names = rest[:n_hide]
-    train_names = rest[n_hide:]
-
-    train_labels = {n: labels[n] for n in train_names}
-    val_labels = {n: labels[n] for n in val_names}
-    # 目录中没有任何标注的视频（真实"未标注"数据）
     extra = [n for n in list_videos(video_dir) if n not in labels]
+    if val_labels is not None:
+        hidden_names = []
+        train_labels = dict(labels)
+        info = {"val": sorted(val_labels), "hidden": [],
+                "extra_unlabeled": extra}
+    else:
+        names = sorted(labels.keys())
+        rng = random.Random(seed)
+        rng.shuffle(names)
+        n_val = max(1, int(len(names) * val_ratio))
+        val_names = names[:n_val]
+        rest = names[n_val:]
+        n_hide = int(len(rest) * hide_ratio)
+        hidden_names = rest[:n_hide]
+        train_names = rest[n_hide:]
+
+        train_labels = {n: labels[n] for n in train_names}
+        val_labels = {n: labels[n] for n in val_names}
+        info = {"val": val_names, "hidden": hidden_names,
+                "extra_unlabeled": extra}
     unlabeled_names = hidden_names + extra
 
-    info = {"val": val_names, "hidden": hidden_names, "extra_unlabeled": extra}
     os.makedirs(out_dir, exist_ok=True)
     with open(os.path.join(out_dir, "split.json"), "w", encoding="utf-8") as f:
         json.dump(info, f, ensure_ascii=False, indent=2)
@@ -61,7 +72,7 @@ def build_train_dataset(video_dir, train_labels, pool, T):
 
 def pseudo_label_round(model_template_fn, video_dir, train_labels, pool,
                        unlabeled_names, n_runs, sub_ratio, epochs, lr, bs,
-                       device, seed_offset, T, log_interval):
+                       device, seed_offset, T, log_interval, use_fp16=False):
     """B.1 一轮：N 次独立训练-打分 + 稳定性筛选，返回新增伪标签 dict {name: (mos, var)}。
 
     model_template_fn: 每次调用返回"已加载基础权重"的新模型实例。
@@ -85,8 +96,10 @@ def pseudo_label_round(model_template_fn, video_dir, train_labels, pool,
         optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
         for ep in range(1, epochs + 1):
             train_one_epoch(model, loader, optimizer, device,
-                            log_interval=log_interval, epoch=ep)
-        scores = score_videos(model, all_ds, device, batch_size=bs)
+                            log_interval=log_interval, epoch=ep,
+                            use_fp16=use_fp16)
+        scores = score_videos(model, all_ds, device, batch_size=bs,
+                              use_fp16=use_fp16)
         for n in unlabeled_names:
             preds[n].append(scores[n])
         print(f"  run {run}/{n_runs} 完成")
@@ -105,7 +118,7 @@ def pseudo_label_round(model_template_fn, video_dir, train_labels, pool,
 
 
 def validation_round(model_template_fn, video_dir, train_labels, pool, val_labels,
-                     epochs, lr, bs, device, T, log_interval):
+                     epochs, lr, bs, device, T, log_interval, use_fp16=False):
     """B.2 一轮：全量训练 + 验证集指标，返回 (model, metrics)。"""
     train_ds = build_train_dataset(video_dir, train_labels, pool, T)
     loader = DataLoader(train_ds, batch_size=bs, shuffle=True,
@@ -115,9 +128,11 @@ def validation_round(model_template_fn, video_dir, train_labels, pool, val_label
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
     for ep in range(1, epochs + 1):
         train_one_epoch(model, loader, optimizer, device,
-                        log_interval=log_interval, epoch=ep)
-    train_loss = eval_loss(model, loader, device)
-    scores = score_videos(model, val_ds, device, batch_size=bs)
+                        log_interval=log_interval, epoch=ep,
+                        use_fp16=use_fp16)
+    train_loss = eval_loss(model, loader, device, use_fp16=use_fp16)
+    scores = score_videos(model, val_ds, device, batch_size=bs,
+                          use_fp16=use_fp16)
     names = [it[0] for it in sorted(val_ds.items, key=lambda it: it[0])]
     y_true = [val_labels[n] for n in names]
     y_pred = [scores[n] for n in names]
@@ -144,11 +159,25 @@ def run_semisup(args):
         print(f"警告: 跳过缺失视频 {n}")
     print(f"标注视频总数: {len(labels)}")
 
+    val_labels = None
+    if getattr(args, "val_labels", ""):
+        val_labels = parse_labels(args.val_labels)
+        val_labels, v_missing = resolve_labels(val_labels, args.data_dir)
+        for n in v_missing:
+            print(f"警告: 验证标注跳过缺失视频 {n}")
+        overlap = set(labels) & set(val_labels)
+        if overlap:
+            print(f"警告: 训练/验证标注重叠 {len(overlap)} 个视频，已从训练中剔除")
+            labels = {n: v for n, v in labels.items() if n not in overlap}
+        print(f"独立验证标注视频数: {len(val_labels)}")
+
     train_labels, val_labels, unlabeled_names = split_labeled(
         labels, args.val_ratio, args.hide_ratio, args.seed,
-        args.data_dir, args.out)
+        args.data_dir, args.out, val_labels=val_labels)
     print(f"训练标注集: {len(train_labels)} | 验证集(锁定): {len(val_labels)} | "
           f"未标注视频: {len(unlabeled_names)}")
+
+    use_fp16 = bool(getattr(args, "fp16", False))
 
     def model_template():
         m = build_model(device, T=args.t)
@@ -166,7 +195,8 @@ def run_semisup(args):
         new_pseudo = pseudo_label_round(
             model_template, args.data_dir, train_labels, pool, unlabeled_names,
             args.n_runs, args.sub_ratio, args.sub_epochs, args.lr, args.bs,
-            device, args.seed + rnd * 1000, args.t, args.log_interval)
+            device, args.seed + rnd * 1000, args.t, args.log_interval,
+            use_fp16=use_fp16)
         for n, (mos, var) in new_pseudo.items():
             pool[n] = (mos, var)
         print(f"本轮新增伪标签 {len(new_pseudo)} 个，累积 {len(pool)} 个")
@@ -177,7 +207,8 @@ def run_semisup(args):
         print(f"===== 轮次 {rnd} | B.2 验证/微调 =====")
         model, m = validation_round(
             model_template, args.data_dir, train_labels, pool, val_labels,
-            args.val_epochs, args.lr, args.bs, device, args.t, args.log_interval)
+            args.val_epochs, args.lr, args.bs, device, args.t, args.log_interval,
+            use_fp16=use_fp16)
         entry = {"round": rnd, "pool_size": len(pool), **m}
         history.append(entry)
         print(f"SROCC={m['SROCC']:.4f} PLCC={m['PLCC']:.4f} OBJ={m['OBJ']:.4f}")

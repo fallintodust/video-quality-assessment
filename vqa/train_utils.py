@@ -6,6 +6,7 @@ checkpoint 布局（任务书要求三份权重）：
     <dir>/model.pt       综合 checkpoint（含 meta）
 """
 
+import contextlib
 import json
 import os
 import random
@@ -29,19 +30,31 @@ def weighted_mse(pred, target, weight):
     return (weight * (pred - target) ** 2).mean()
 
 
-def train_one_epoch(model, loader, optimizer, device, log_interval=10, epoch=0):
-    """训练一个 epoch，返回平均 loss。"""
+def _autocast_ctx(device, enabled):
+    """fp16 autocast 上下文（仅 CUDA 且启用时生效）。"""
+    if enabled and device.type == "cuda":
+        return torch.autocast("cuda", dtype=torch.float16)
+    return contextlib.nullcontext()
+
+
+def train_one_epoch(model, loader, optimizer, device, log_interval=10, epoch=0,
+                    use_fp16=False):
+    """训练一个 epoch（可选 fp16 混合精度 + GradScaler），返回平均 loss。"""
     model.train()
+    scaler = torch.cuda.amp.GradScaler(
+        enabled=use_fp16 and device.type == "cuda")
     total_loss, n = 0.0, 0
     for i, (frames, labels, weights) in enumerate(loader):
         frames = frames.to(device)
         labels = labels.to(device)
         weights = weights.to(device)
         optimizer.zero_grad()
-        pred = model(frames)
-        loss = weighted_mse(pred, labels, weights)
-        loss.backward()
-        optimizer.step()
+        with _autocast_ctx(device, use_fp16):
+            pred = model(frames)
+            loss = weighted_mse(pred, labels, weights)
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
         total_loss += loss.item() * len(labels)
         n += len(labels)
         if log_interval > 0 and (i + 1) % log_interval == 0:
@@ -50,7 +63,7 @@ def train_one_epoch(model, loader, optimizer, device, log_interval=10, epoch=0):
 
 
 @torch.no_grad()
-def eval_loss(model, loader, device):
+def eval_loss(model, loader, device, use_fp16=False):
     """在数据集上计算平均（加权）MSE。"""
     model.eval()
     total_loss, n = 0.0, 0
@@ -58,7 +71,8 @@ def eval_loss(model, loader, device):
         frames = frames.to(device)
         labels = labels.to(device)
         weights = weights.to(device)
-        pred = model(frames)
+        with _autocast_ctx(device, use_fp16):
+            pred = model(frames)
         total_loss += weighted_mse(pred, labels, weights).item() * len(labels)
         n += len(labels)
     return total_loss / max(n, 1)
@@ -73,7 +87,7 @@ def _name_at(dataset, i):
 
 
 @torch.no_grad()
-def score_videos(model, dataset, device, batch_size=4):
+def score_videos(model, dataset, device, batch_size=4, use_fp16=False):
     """对数据集中的视频打分，返回 {视频名: 预测分}。
 
     适用于带标签或不带标签的数据集（label 被忽略，只用视频帧）。
@@ -87,7 +101,8 @@ def score_videos(model, dataset, device, batch_size=4):
     scores = {}
     seen = 0  # 已处理样本数（独立计数，避免与 dict 长度混淆）
     for frames, _, _ in loader:
-        pred = model(frames.to(device)).cpu().numpy()
+        with _autocast_ctx(device, use_fp16):
+            pred = model(frames.to(device)).cpu().numpy()
         for j in range(frames.shape[0]):
             name = _name_at(dataset, seen + j)
             scores[name] = float(pred[j])

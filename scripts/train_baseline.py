@@ -41,6 +41,10 @@ def main():
     p.add_argument("--wd", type=float, default=Config.WEIGHT_DECAY)
     p.add_argument("--t", type=int, default=Config.T, help="每视频抽帧数")
     p.add_argument("--val-ratio", type=float, default=Config.VAL_RATIO)
+    p.add_argument("--val-labels", default="",
+                   help="独立验证标注文件（锁定验证集，如课程 train_lable_test.txt；"
+                        "给定后不再从训练标注内部分割）")
+    p.add_argument("--fp16", action="store_true", help="fp16 混合精度训练")
     p.add_argument("--seed", type=int, default=Config.SEED)
     p.add_argument("--resume", default="", help="从该目录加载权重继续训练")
     p.add_argument("--log-interval", type=int, default=10)
@@ -48,7 +52,7 @@ def main():
 
     set_seed(args.seed)
     device = get_device()
-    print(f"设备: {device}")
+    print(f"设备: {device}  fp16: {args.fp16}")
 
     # ---- 数据准备 ----
     labels = parse_labels(args.labels)
@@ -57,14 +61,30 @@ def main():
         print(f"警告: 标注中 {len(missing)} 个视频文件不存在，已跳过")
     print(f"标注视频数: {len(labels)}")
 
+    val_labels = {}
+    if args.val_labels:
+        val_labels = parse_labels(args.val_labels)
+        val_labels, v_missing = resolve_labels(val_labels, args.data_dir)
+        if v_missing:
+            print(f"警告: 验证标注中 {len(v_missing)} 个视频文件不存在，已跳过")
+        overlap = set(labels) & set(val_labels)
+        if overlap:
+            print(f"警告: 训练/验证标注重叠 {len(overlap)} 个视频，已从训练中剔除")
+            labels = {n: v for n, v in labels.items() if n not in overlap}
+
     all_ds = VideoDataset.from_labels(args.data_dir, labels, weight=1.0, T=args.t)
-    n_val = max(1, int(len(all_ds) * args.val_ratio))
-    n_train = len(all_ds) - n_val
-    g = torch.Generator().manual_seed(args.seed)
-    idx = torch.randperm(len(all_ds), generator=g).tolist()
-    train_ds = Subset(all_ds, idx[:n_train])
-    val_ds = Subset(all_ds, idx[n_train:])
-    print(f"划分: train={len(train_ds)} val={len(val_ds)}")
+    if args.val_labels:
+        train_ds = all_ds
+        val_ds = VideoDataset.from_labels(args.data_dir, val_labels, weight=1.0, T=args.t)
+        print(f"划分: train={len(train_ds)}（训练标注） val={len(val_ds)}（独立验证标注）")
+    else:
+        n_val = max(1, int(len(all_ds) * args.val_ratio))
+        n_train = len(all_ds) - n_val
+        g = torch.Generator().manual_seed(args.seed)
+        idx = torch.randperm(len(all_ds), generator=g).tolist()
+        train_ds = Subset(all_ds, idx[:n_train])
+        val_ds = Subset(all_ds, idx[n_train:])
+        print(f"划分: train={len(train_ds)} val={len(val_ds)}")
 
     train_loader = DataLoader(train_ds, batch_size=args.bs, shuffle=True,
                               collate_fn=collate_videos, num_workers=0)
@@ -85,8 +105,9 @@ def main():
     os.makedirs(args.out, exist_ok=True)
     for epoch in range(1, args.epochs + 1):
         train_loss = train_one_epoch(model, train_loader, optimizer, device,
-                                     log_interval=args.log_interval, epoch=epoch)
-        vloss = eval_loss(model, val_loader, device)
+                                     log_interval=args.log_interval, epoch=epoch,
+                                     use_fp16=args.fp16)
+        vloss = eval_loss(model, val_loader, device, use_fp16=args.fp16)
         msg = f"[epoch {epoch}/{args.epochs}] train_loss={train_loss:.3f} val_loss={vloss:.3f}"
         if vloss < best_val_loss:
             best_val_loss = vloss
@@ -102,10 +123,13 @@ def main():
     model = build_model(device, T=args.t)
     load_checkpoint(model, args.out, tag="_best")
     if len(val_ds) >= 8:
-        scores = score_videos(model, val_ds, device, batch_size=args.bs)
+        scores = score_videos(model, val_ds, device, batch_size=args.bs,
+                              use_fp16=args.fp16)
         names = sorted(scores, key=lambda n: [int(x) if x.isdigit() else x
                                               for x in __import__("re").split(r"(\d+)", n)])
-        y_true = [labels[n] for n in names]
+        y_true_map = dict(labels)
+        y_true_map.update(val_labels)
+        y_true = [y_true_map[n] for n in names]
         y_pred = [scores[n] for n in names]
         m = evaluate_metrics(y_true, y_pred)
         print(f"验证集指标 -> SROCC={m['SROCC']:.4f} PLCC={m['PLCC']:.4f} OBJ={m['OBJ']:.4f}")
