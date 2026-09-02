@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NR-VQA 视频质量评估系统</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="app">
+        <!-- 头部 -->
+        <header>
+            <div class="header-content">
+                <h1><i class="fas fa-film"></i> NR-VQA 视频质量评估</h1>
+                <p class="subtitle">无参考视频质量评估 · 聚焦时域一致性</p>
+                <div class="badges">
+                    <span class="badge"><i class="fas fa-eye"></i> 闪烁检测</span>
+                    <span class="badge"><i class="fas fa-pause"></i> 帧冻结卡顿</span>
+                    <span class="badge"><i class="fas fa-wave-square"></i> 时域噪声</span>
+                </div>
+                <div id="modelStatus" class="model-status">
+                    <i class="fas fa-spinner fa-spin"></i> 加载中...
+                </div>
+            </div>
+        </header>
+
+        <!-- 主内容 -->
+        <main>
+            <!-- 上传区域 -->
+            <section class="upload-section">
+                <div class="drop-zone" id="dropZone">
+                    <i class="fas fa-cloud-upload-alt fa-4x"></i>
+                    <p class="drop-text">拖拽视频到此处，或点击上传</p>
+                    <p class="drop-hint">支持 MP4, AVI, MOV, MKV 等格式</p>
+                    <input type="file" id="fileInput" accept="video/*" multiple>
+                    <button class="btn-primary" onclick="document.getElementById('fileInput').click()">
+                        <i class="fas fa-plus"></i> 选择视频
+                    </button>
+                </div>
+            </section>
+
+            <!-- 任务队列 -->
+            <section id="queueSection" style="display:none;" class="queue-section">
+                <div class="section-header">
+                    <h3><i class="fas fa-list"></i> 评估队列 (<span id="queueCount">0</span>)</h3>
+                    <div class="section-actions">
+                        <button class="btn-secondary" onclick="clearQueue()">
+                            <i class="fas fa-trash"></i> 清空
+                        </button>
+                        <button class="btn-primary" id="batchEvalBtn" onclick="evaluateAll()">
+                            <i class="fas fa-play"></i> 开始评估
+                        </button>
+                    </div>
+                </div>
+                <div id="queueList"></div>
+            </section>
+
+            <!-- 结果展示 -->
+            <section id="resultsSection" style="display:none;" class="results-section">
+                <div class="section-header">
+                    <h3><i class="fas fa-chart-bar"></i> 评估结果</h3>
+                    <button class="btn-secondary" onclick="clearResults()">
+                        <i class="fas fa-times"></i> 清空结果
+                    </button>
+                </div>
+                
+                <div class="summary-stats" id="summaryStats">
+                    <div class="stat-item">
+                        <span class="stat-label">📊 视频数量</span>
+                        <span class="stat-value" id="statCount">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">⭐ 平均MOS</span>
+                        <span class="stat-value" id="statAvg">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">⬆️ 最高分</span>
+                        <span class="stat-value" id="statMax">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">⬇️ 最低分</span>
+                        <span class="stat-value" id="statMin">-</span>
+                    </div>
+                </div>
+                
+                <div id="resultsGrid"></div>
+            </section>
+
+            <!-- 示例视频 -->
+            <section class="examples-section">
+                <details>
+                    <summary><i class="fas fa-video"></i> 使用示例视频</summary>
+                    <div class="examples-content">
+                        <p>如果还没有测试视频，可以使用以下示例（需要先下载）：</p>
+                        <div class="example-links">
+                            <a href="#" class="example-link" onclick="alert('请将示例视频放在 demo/frontend/assets/sample_videos/ 目录下')">
+                                <i class="fas fa-download"></i> 下载示例视频
+                            </a>
+                        </div>
+                    </div>
+                </details>
+            </section>
+
+            <!-- 模型信息 -->
+            <section class="info-section">
+                <details>
+                    <summary><i class="fas fa-info-circle"></i> 模型架构与训练信息</summary>
+                    <div class="info-content">
+                        <div class="info-grid">
+                            <div>
+                                <h4>🏗️ 模型架构</h4>
+                                <ul>
+                                    <li><strong>特征提取器：</strong>ResNet-50 多尺度卷积分支</li>
+                                    <li><strong>全局分支：</strong>ViT-B/16 Token 分支</li>
+                                    <li><strong>特征维度：</strong>15,872 维</li>
+                                    <li><strong>时间聚合：</strong>时序池化 + 回归头</li>
+                                </ul>
+                            </div>
+                            <div>
+                                <h4>📚 训练流程</h4>
+                                <ul>
+                                    <li><strong>A阶段 (Baseline)：</strong>标注视频监督训练 (MSE)</li>
+                                    <li><strong>B阶段 (半监督)：</strong>伪标签迭代优化 (加权MSE)</li>
+                                    <li><strong>优化目标：</strong>SROCC + PLCC</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </details>
+            </section>
+        </main>
+
+        <!-- 底部 -->
+        <footer>
+            <p>课程设计项目 · 基于深度学习的无参考视频质量评估</p>
+        </footer>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
