@@ -111,6 +111,32 @@ python scripts/predict.py --model runs/semisup/model_best.pt \
 
 换用课程数据：把视频放进 `data/course/videos/`、标注写入 `data/course/labels.txt`，把上面命令的路径替换即可，其余不变。
 
+### 课程数据正式训练（DIVIDE-MaxWell，4543 视频）
+
+```bash
+# 0. 预抽帧缓存（一次性，约 5.5GB；训练/打分大幅提速）
+python scripts/precache_frames.py --data-dir data/divide/videos \
+    --cache-dir data/frames_cache --t 8 --workers 8
+
+# 1. (A) baseline：训练标注 3634 + 锁定验证标注 909
+python scripts/train_baseline.py --data-dir data/divide/videos \
+    --labels data/divide/train_lable_train.txt \
+    --val-labels data/divide/train_lable_test.txt \
+    --out runs/divide_baseline --fp16 --frame-cache data/frames_cache --epochs 12
+
+# 2. (B) 半监督：909 个验证视频作为"未标注"进入伪标签池（锁定验证集评估）
+#    注意：重建标注为 1~5 量纲，--var-threshold 用 0.2（0~100 时用默认 25）
+python scripts/train_semisup.py --data-dir data/divide/videos \
+    --labels data/divide/train_lable_train.txt \
+    --val-labels data/divide/train_lable_test.txt \
+    --baseline runs/divide_baseline --out runs/divide_semisup \
+    --var-threshold 0.2 --fp16 --frame-cache data/frames_cache
+
+# 3. 测试推理（测试视频到达后）：输出 score.txt
+python scripts/predict.py --model runs/divide_semisup/model_best.pt \
+    --videos data/test_videos --out score.txt --fp16
+```
+
 ## 实验记录（合成数据自测）
 
 | 阶段 | SROCC | PLCC | OBJ | 备注 |
