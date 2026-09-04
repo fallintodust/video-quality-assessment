@@ -173,3 +173,75 @@ def heuristic_flicker(frames_rgb):
 
 # 参考实现默认注册，保证脚本开箱可跑；组员实现后替换即可。
 # register_detector("闪烁", heuristic_flicker)
+# ============================================================================
+# 闪烁检测：接入训练好的时域模型（组员2 / ALEKSEEV PETR）
+#
+# 把本段追加到 vqa/diagnosis.py 末尾，替换原来的
+#     register_detector("闪烁", heuristic_flicker)
+# 一行（把那一行删掉或注释掉）。
+#
+# 设计说明：
+#   - 懒加载：只有真正调用检测器时才载入骨干与权重，
+#     `import vqa.diagnosis` 本身不会花几秒去建 ResNet。
+#   - 有回退：torch 不可用、权重缺失或加载失败时，
+#     自动退回启发式实现，diagnose.py 依然能跑通。
+#   - 权重路径可用环境变量 FLICKER_CKPT 覆盖。
+#
+# 实测对比（T-5 验证集 200 视频，见 docs/flicker_detector.md）：
+#     模型          SROCC 0.5807  PLCC 0.5976  Score 0.5891
+#     启发式 v2     SROCC 0.2937  PLCC 0.2928  Score 0.2932
+#     原启发式基线  更低
+# ============================================================================
+
+import os as _os
+import sys as _sys
+
+_FLICKER_CKPT = _os.environ.get(
+    "FLICKER_CKPT",
+    _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
+                  "runs", "t5", "best_r50_mean+std+diff.pt"))
+
+_model_flicker = None          # 懒加载后的实例
+_model_failed = False          # 失败过就不再重试
+
+
+def _get_model_flicker():
+    global _model_flicker, _model_failed
+    if _model_flicker is not None or _model_failed:
+        return _model_flicker
+    try:
+        root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+        scripts = _os.path.join(root, "scripts")
+        if scripts not in _sys.path:
+            _sys.path.insert(0, scripts)
+        from flicker_detectors import ModelFlicker
+        _model_flicker = ModelFlicker(_FLICKER_CKPT, scripts_dir=scripts)
+        print(f"[闪烁] 已加载模型: {_os.path.basename(_FLICKER_CKPT)}")
+    except Exception as e:
+        _model_failed = True
+        print(f"[闪烁] 模型加载失败（{e}），回退到启发式实现")
+    return _model_flicker
+
+
+def model_flicker_detector(frames_rgb):
+    """闪烁/时域一致性检测（模型版，带启发式回退）。
+
+    frames_rgb: [T, size, size, 3] uint8 RGB，由 load_frames_rgb 提供。
+
+    注意抽帧方式：diagnose.py 用的是全局均匀抽帧（TSN 式），
+    而模型是在连续片段上训练的。实测这一"不匹配"反而更好
+    （Score 0.6186 对 0.5891），原因是 T-5 的抖动是秒级现象，
+    均匀抽帧的时间窗口更长，详见 docs/cached_feature_pipeline.md 6.5 节。
+    """
+    m = _get_model_flicker()
+    if m is None:
+        return heuristic_flicker(frames_rgb)
+    try:
+        return m(frames_rgb)
+    except Exception as e:
+        print(f"[闪烁] 推理失败（{e}），本条回退到启发式")
+        return heuristic_flicker(frames_rgb)
+
+
+FLICKER_DETECTOR = model_flicker_detector
+register_detector("闪烁", FLICKER_DETECTOR)

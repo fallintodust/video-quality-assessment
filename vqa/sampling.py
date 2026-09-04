@@ -7,8 +7,12 @@
 - 数值范围：0~1 归一化 + ImageNet 均值/方差标准化。
 """
 
+import os
+
 import numpy as np
 import torch
+
+from .config import Config
 
 
 def sample_frame_indices(num_frames: int, T: int) -> np.ndarray:
@@ -21,13 +25,36 @@ def sample_frame_indices(num_frames: int, T: int) -> np.ndarray:
     return np.clip(idx, 0, num_frames - 1)
 
 
+def load_cached_frames(path, cache_dir):
+    """从预抽帧缓存读取 [T, size, size, 3] uint8 BGR；未命中返回 None。"""
+    if not cache_dir:
+        return None
+    stem = os.path.splitext(os.path.basename(path))[0]
+    npy = os.path.join(cache_dir, stem + ".npy")
+    if not os.path.isfile(npy):
+        return None
+    x = np.load(npy)
+    if x.ndim != 4 or x.dtype != np.uint8:
+        return None
+    return x
+
+
 def read_video_frames(path, T=8, size=224, mean=(0.485, 0.456, 0.406),
                       std=(0.229, 0.224, 0.225)):
     """读取视频并按 TSN 策略抽取 T 帧，返回 [T, 3, size, size] 标准化张量。
 
-    - OpenCV 顺序读取，只保留被采样到的帧（避免 seek 在部分编码下不可靠）。
+    - 命中 Config.FRAME_CACHE（scripts/precache_frames.py 预抽帧）时直接
+      读 npy，跳过视频解码；缓存帧数须 >= T，取前 T 帧。
+    - 否则 OpenCV 顺序读取，只保留被采样到的帧（避免 seek 不可靠）。
     - 若视频实际帧数少于 T，用最后一帧重复补齐。
     """
+    cached = load_cached_frames(path, Config.FRAME_CACHE)
+    if cached is not None:
+        x = torch.from_numpy(cached[:T]).float().permute(0, 3, 1, 2) / 255.0
+        mean_t = torch.tensor(mean, dtype=x.dtype).view(1, 3, 1, 1)
+        std_t = torch.tensor(std, dtype=x.dtype).view(1, 3, 1, 1)
+        return (x - mean_t) / std_t
+
     import cv2
 
     cap = cv2.VideoCapture(path)
