@@ -11,6 +11,7 @@ class Config:
     SIZE = 224               # 帧统一空间分辨率 224x224
     MEAN = [0.485, 0.456, 0.406]   # ImageNet 归一化均值
     STD = [0.229, 0.224, 0.225]    # ImageNet 归一化方差
+    FRAME_CACHE = None       # 预抽帧缓存目录（scripts/precache_frames.py 生成）
 
     # ---- 训练（baseline）----
     EPOCHS = 20              # 总 epoch 数
