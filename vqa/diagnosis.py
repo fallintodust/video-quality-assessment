@@ -172,4 +172,4 @@ def heuristic_flicker(frames_rgb):
 
 
 # 参考实现默认注册，保证脚本开箱可跑；组员实现后替换即可。
-register_detector("闪烁", heuristic_flicker)
+# register_detector("闪烁", heuristic_flicker)
