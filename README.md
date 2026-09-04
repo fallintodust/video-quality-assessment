@@ -137,7 +137,9 @@ python scripts/predict.py --model runs/divide_semisup/model_best.pt \
     --videos data/test_videos --out score.txt --fp16
 ```
 
-## 实验记录（合成数据自测）
+## 实验记录
+
+### 合成数据自测
 
 | 阶段 | SROCC | PLCC | OBJ | 备注 |
 |---|---|---|---|---|
@@ -146,8 +148,51 @@ python scripts/predict.py --model runs/divide_semisup/model_best.pt \
 
 > 说明：半监督自测中 30% 标注被隐藏模拟未标注场景（训练标注 34 个，少于 baseline 的 48 个），
 > 故 SROCC 略低于 baseline、PLCC 更高——符合"少量标注 + 伪标签扩充"的预期；
-> 全量标注上 best 模型 SROCC=0.9098 / PLCC=0.9016。真实课程数据（DIVIDE-MaxWell）标注到达后在此更新正式结果。
-> 完整历史见 `runs/semisup/metrics.json`。
+> 全量标注上 best 模型 SROCC=0.9098 / PLCC=0.9016。完整历史见 `runs/semisup/metrics.json`。
+
+### 正式数据（DIVIDE-MaxWell，4543 视频；909 锁定验证集）
+
+| 阶段 | SROCC | PLCC | OBJ | 备注 |
+|---|---|---|---|---|
+| **(A) baseline** | **0.6723** | **0.6723** | **1.3446** | best@epoch4；12 epochs，fp16+帧缓存 |
+| (B) 半监督 v1（默认配置）轮次 1 | 0.6716 | 0.6271 | 1.2987 | 901 伪标签入池 |
+| 轮次 2 | 0.6454 | 0.5698 | 1.2152 | |
+| 轮次 3 | 0.6628 | 0.5034 | 1.1662 | |
+| 轮次 4 | 0.6615 | 0.4719 | 1.1334 | 早停 3/3，实验结束 |
+| (B) 半监督 v2（重标定+weight0.2+var0.05）轮次 1 | 0.6616 | 0.6184 | 1.2800 | 868 伪标签入池，重标定生效 |
+| v2 后续轮次 | 进行中 | | | 2026-09-03 20:10 启动 |
+
+> **v1 实验结论**：伪标签（模型自身预测）带有压缩偏差（不敢打低分、够不着高分，std 0.422 vs 真值 0.491），
+> 以 0.5 权重回喂后模型 PLCC 单调下滑而 SROCC 稳定——伪标签法在默认配置下未带来增益。
+> v2 引入 z-score 重标定（对齐真标注分布）、[1,5] 裁剪、权重 0.2、方差阈值 0.05 复测。
+> 完整诊断与修改方案见 `docs/semisup_experiment_report.md`，能力边界分析见 `docs/summary_report.md`。
+
+## 分工与失真专项诊断（噪点/闪烁/模糊）
+
+整体打分（组长）+ 三类失真专项判定（组员各一人）并行开发，统一接口合成：
+
+| 模块 | 接口/入口 | 状态 |
+|---|---|---|
+| 整体 MOS 打分 | `predict.py` → score.txt | baseline 完成 |
+| 噪点判定 | `vqa/diagnosis.py` 的 `NOISE_DETECTOR` 槽位 | 待组员实现 |
+| 闪烁判定 | `FLICKER_DETECTOR` 槽位（附参考实现 `heuristic_flicker`） | 参考实现可跑 |
+| 模糊判定 | `BLUR_DETECTOR` 槽位 | 待组员实现 |
+
+组员接入约定（详见 `vqa/diagnosis.py` 文件头注释）：实现
+`detect(frames_rgb) -> {"score": 0~1, "level": 无/轻/中/重, "detail": {...}}`，
+赋给对应槽位并 `register_detector`。检测器只依赖抽帧结果，**不依赖打分模型权重，可独立开发自测**。
+
+整合入口（可挂主模型总分，可不挂）：
+
+```bash
+# 只出问题清单（组员自测）
+python scripts/diagnose.py --videos data/test_videos --out-dir runs/diagnose
+
+# 问题清单 + 整体总分（最终合成交付）
+python scripts/diagnose.py --videos data/test_videos \
+    --model runs/divide_baseline/model_best.pt --fp16 --out-dir runs/diagnose
+# → report.json / report.txt，与 score.txt 配套
+```
 
 ## 算力与耗时约束说明
 
@@ -166,14 +211,19 @@ videoquality/
 │   ├── models.py              # 双分支特征提取器 + 回归头
 │   ├── metrics.py             # SROCC/PLCC/总分公式
 │   ├── train_utils.py         # 加权MSE/checkpoint/打分
-│   └── semisup.py             # 半监督伪标签主循环
+│   ├── semisup.py             # 半监督伪标签主循环（含伪标签重标定 debias_pool）
+│   └── diagnosis.py           # 失真专项检测接口（噪点/闪烁/模糊槽位，分工集成点）
 ├── scripts/
 │   ├── make_flicker_dataset.py # 合成闪烁数据集生成器
+│   ├── precache_frames.py      # 预抽帧缓存（训练/推理跳过解码）
 │   ├── train_baseline.py       # (A) baseline 训练
-│   ├── train_semisup.py        # (B) 半监督训练
-│   └── predict.py              # 推理 → score.txt
+│   ├── train_semisup.py        # (B) 半监督训练（--pseudo-debias/--pseudo-clip）
+│   ├── predict.py              # 推理 → score.txt（20 分钟时限统计）
+│   ├── diagnose.py             # 失真诊断 → report.json/txt（分工合成入口）
+│   └── eval_val.py             # 验证集高精度重评 + 导出逐视频分数
 ├── data/                      # 数据（不入库）
-└── runs/                      # 权重与日志（不入库）
+├── docs/                      # 汇报文档（semisup_experiment_report.md / summary_report.md）
+└── runs/                      # 权重与日志（权重经 LFS 入库，其余不入库）
 ```
 
 ## 思考与探索（任务书第九章）

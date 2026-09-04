@@ -70,6 +70,25 @@ def build_train_dataset(video_dir, train_labels, pool, T):
     return VideoDataset(video_dir, items, T=T)
 
 
+def debias_pool(pool, train_labels):
+    """伪标签 MOS 重标定：对齐训练真标注的均值/方差。
+
+    修正模型打分的"压缩偏差"（不敢打低分、也够不着高分，分数向均值聚集）。
+    目标分布只用真标注(train_labels)估计，绝不使用验证集真值。
+    """
+    if not pool:
+        return pool
+    t = np.array(list(train_labels.values()), dtype=float)
+    p = np.array([v[0] for v in pool.values()], dtype=float)
+    if p.std() < 1e-6:
+        return pool
+    mos_new = (p - p.mean()) / p.std() * t.std() + t.mean()
+    out = {}
+    for (n, (_mos, var)), m in zip(pool.items(), mos_new):
+        out[n] = (float(m), var)
+    return out
+
+
 def pseudo_label_round(model_template_fn, video_dir, train_labels, pool,
                        unlabeled_names, n_runs, sub_ratio, epochs, lr, bs,
                        device, seed_offset, T, log_interval, use_fp16=False):
@@ -199,6 +218,15 @@ def run_semisup(args):
             use_fp16=use_fp16)
         for n, (mos, var) in new_pseudo.items():
             pool[n] = (mos, var)
+        if getattr(args, "pseudo_debias", False):
+            pool = debias_pool(pool, train_labels)
+        if getattr(args, "pseudo_clip", False):
+            pool = {n: (min(max(mos, 1.0), 5.0), var)
+                    for n, (mos, var) in pool.items()}
+        if getattr(args, "pseudo_debias", False) or getattr(args, "pseudo_clip", False):
+            _mos = np.array([v[0] for v in pool.values()])
+            print(f"  伪标签修正后: mean={_mos.mean():.3f} std={_mos.std():.3f} "
+                  f"min={_mos.min():.3f} max={_mos.max():.3f}")
         print(f"本轮新增伪标签 {len(new_pseudo)} 个，累积 {len(pool)} 个")
         with open(os.path.join(args.out, "pool.json"), "w", encoding="utf-8") as f:
             json.dump({n: {"mos": v[0], "var": v[1]} for n, v in pool.items()},

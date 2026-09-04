@@ -1,10 +1,10 @@
 # 下次继续：快速开始指南（给 Claude 的会话恢复提示）
 
-> 更新时间：2026-09-02 ｜ 用途：重新打开 Claude 后，把本文件内容作为第一条消息发给 Claude 即可快速恢复。
+> 更新时间：2026-09-02 18:50 ｜ 用途：重新打开 Claude 后，把本文件内容作为第一条消息发给 Claude 即可快速恢复。
 
 ## 一句话背景
 
-VQA 课程设计（第3组），答辩 2026-09-11。任务书架构已实现并自测通过；**课程标注已从原版 MaxWell 仓库重建**并入库；正式训练正在进行中（baseline 于 2026-09-02 手动暂停在 epoch 1，无 checkpoint 落盘，重跑即可）。
+VQA 课程设计（第3组），答辩 2026-09-11。任务书架构已实现并自测通过；**课程标注已从原版 MaxWell 仓库重建**并入库；**(A) baseline 已跑完**（SROCC=0.6723 / PLCC=0.6723，best@epoch4，验证集 909）；**(B) 半监督进行中**（9/2 15:10 启动，轮次 1/5 的 B.2 微调阶段；实测 ~0.4-0.9 步/秒，ETA 9/4 下午-晚间）。
 
 ## 当前状态快照
 
@@ -26,14 +26,10 @@ VQA 课程设计（第3组），答辩 2026-09-11。任务书架构已实现并�
 ## 恢复步骤（按序执行）
 
 ```bash
-# 1. (A) baseline 训练（后台跑，约 3-4 小时，12 epochs）
-/c/Users/ASUS/anaconda3/envs/vqa_env/python.exe -u scripts/train_baseline.py \
-    --data-dir data/divide/videos \
-    --labels data/divide/train_lable_train.txt \
-    --val-labels data/divide/train_lable_test.txt \
-    --out runs/divide_baseline --fp16 --frame-cache data/frames_cache --epochs 12
+# 0. 检查半监督是否还在跑（9/2 15:10 启动，约 35-50 小时）
+tail -5 runs/divide_semisup_console.log
 
-# 2. (B) 半监督伪标签循环（约 8-12 小时；909 个验证视频作为"未标注"进伪标签池）
+# 1. 若(B)被中断且未完成：重启半监督（baseline 权重已在 runs/divide_baseline）
 /c/Users/ASUS/anaconda3/envs/vqa_env/python.exe -u scripts/train_semisup.py \
     --data-dir data/divide/videos \
     --labels data/divide/train_lable_train.txt \
@@ -41,7 +37,15 @@ VQA 课程设计（第3组），答辩 2026-09-11。任务书架构已实现并�
     --baseline runs/divide_baseline --out runs/divide_semisup \
     --var-threshold 0.2 --fp16 --frame-cache data/frames_cache
 
+# 2. 复核任意 checkpoint 在 909 验证集上的高精度指标（scripts/eval_val.py，本次新增）
+/c/Users/ASUS/anaconda3/envs/vqa_env/python.exe -u scripts/eval_val.py \
+    --model-dir runs/divide_semisup --data-dir data/divide/videos \
+    --labels data/divide/train_lable_test.txt --frame-cache data/frames_cache --fp16 \
+    --out runs/divide_semisup/val_scores_best.txt
+
 # 3. 结果记录到 README「实验记录」表，向用户阐释 SROCC/PLCC
+# 4. 上传 runs 小文件 + 最终 best 权重(LFS) 到 Vzixing 分支（用户已授权直接执行）
+# 5. 写训练总结 + 模型能力边界/研究方向分析（docs/summary_report.md）
 ```
 
 要点：

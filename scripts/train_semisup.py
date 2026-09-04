@@ -29,6 +29,11 @@ def main():
     p.add_argument("--sub-epochs", type=int, default=Config.SUB_EPOCHS)
     p.add_argument("--var-threshold", type=float, default=Config.VAR_THRESHOLD)
     p.add_argument("--pseudo-weight", type=float, default=Config.PSEUDO_WEIGHT)
+    p.add_argument("--pseudo-debias", action="store_true",
+                   help="伪标签 MOS 重标定：均值/方差对齐训练真标注分布"
+                        "（修正模型打分的压缩偏差）")
+    p.add_argument("--pseudo-clip", action="store_true",
+                   help="伪标签 MOS 裁剪到 [1, 5]（模型输出可能越界）")
     p.add_argument("--val-epochs", type=int, default=Config.VAL_EPOCHS)
     p.add_argument("--early-stop", type=int, default=Config.EARLY_STOP)
     p.add_argument("--hide-ratio", type=float, default=Config.HIDE_RATIO,
