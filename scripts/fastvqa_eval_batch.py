@@ -67,8 +67,23 @@ def load_labels(path):
     return d
 
 
-def build_samplers(opt, split="val-kv1k"):
+def pick_split(opt, preferred="val-kv1k"):
+    """Configs differ in which validation splits they define: fast-b has
+    val-kv1k, fast-m only has val-livevqc. Any val-* section carries the same
+    fragment settings, so fall back to whichever one exists."""
+    data = opt["data"]
+    if preferred in data:
+        return preferred
+    for k in data:
+        if k.startswith("val"):
+            print(f"note: '{preferred}' not in this config, using '{k}'")
+            return k
+    raise SystemExit(f"no val-* split in config; available: {list(data)}")
+
+
+def build_samplers(opt, split=None):
     """Return (sampler, sample_args) per sample type, as upstream vqa.py does."""
+    split = split or pick_split(opt)
     t_opt = opt["data"][split]["args"]
     s_opt = t_opt["sample_types"]
     out = {}
