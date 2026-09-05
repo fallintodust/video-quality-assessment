@@ -250,10 +250,11 @@ def spatial_temporal_view_decomposition(
 
         ### Each frame is only decoded one time!!!
         all_frame_inds = np.concatenate(all_frame_inds, 0)
-        frame_dict = {idx: vreader[idx] for idx in np.unique(all_frame_inds)}
+        # 顺序解码（Windows cv2 替代 decord 后比逐帧随机 seek 快 2~4 倍）
+        frame_dict = vreader.read_frames(np.unique(all_frame_inds))
 
         for stype in samplers:
-            imgs = [frame_dict[idx] for idx in frame_inds[stype]]
+            imgs = [frame_dict[int(idx)] for idx in frame_inds[stype]]
             video[stype] = torch.stack(imgs, 0).permute(3, 0, 1, 2)
 
     sampled_video = {}

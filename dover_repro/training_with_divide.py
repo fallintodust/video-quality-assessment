@@ -104,6 +104,8 @@ def finetune_epoch(
     plus_plus=True,
 ):
     model.train()
+    use_amp = device == "cuda"
+    scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
     for i, data in enumerate(tqdm(ft_loader, desc=f"Training in epoch {epoch}")):
         optimizer.zero_grad()
         video = {}
@@ -113,7 +115,8 @@ def finetune_epoch(
 
         y = data["gt_label"].float().detach().to(device).unsqueeze(-1)
 
-        scores = model(video, inference=False, reduce_scores=False)
+        with torch.cuda.amp.autocast(enabled=use_amp):
+            scores = model(video, inference=False, reduce_scores=False)
         if len(scores) > 1:
             y_pred = reduce(lambda x, y: x + y, scores)
         else:
@@ -125,46 +128,36 @@ def finetune_epoch(
 
         loss = 0  # p_loss + 0.3 * r_loss
 
-        if need_separate_sup:
-            p_loss_a = plcc_loss(scores[0].mean((-3, -2, -1)), y)
-            p_loss_b = plcc_loss(scores[1].mean((-3, -2, -1)), y)
-            r_loss_a = rank_loss(scores[0].mean((-3, -2, -1)), y)
-            r_loss_b = rank_loss(scores[1].mean((-3, -2, -1)), y)
-            loss += (
-                p_loss_a + p_loss_b + 0.3 * r_loss_a + 0.3 * r_loss_b
-            )  # + 0.2 * o_loss
-            wandb.log(
-                {
-                    "train/plcc_loss_a": p_loss_a.item(),
-                    "train/plcc_loss_b": p_loss_b.item(),
-                }
-            )
-            
-        if plus_plus:
-            if i == 0:
-                print("In DOVER++ training")
-            y_a = data["gt_label_a"].float().detach().to(device).unsqueeze(-1)
-            y_t = data["gt_label_t"].float().detach().to(device).unsqueeze(-1)
-            p_loss_a = plcc_loss(scores[0].mean((-3, -2, -1)), y_a)
-            p_loss_b = plcc_loss(scores[1].mean((-3, -2, -1)), y_t)
-            r_loss_a = rank_loss(scores[0].mean((-3, -2, -1)), y_a)
-            r_loss_b = rank_loss(scores[1].mean((-3, -2, -1)), y_t)
-            loss += 0.5 * (
-                p_loss_a + p_loss_b + 0.3 * r_loss_a + 0.3 * r_loss_b
-            )  # + 0.2 * o_loss
-            wandb.log(
-                {
-                    "train/plcc_loss_a": p_loss_a.item(),
-                    "train/plcc_loss_b": p_loss_b.item(),
-                }
-            )
+        with torch.cuda.amp.autocast(enabled=use_amp):
+            if need_separate_sup:
+                p_loss_a = plcc_loss(scores[0].mean((-3, -2, -1)), y)
+                p_loss_b = plcc_loss(scores[1].mean((-3, -2, -1)), y)
+                r_loss_a = rank_loss(scores[0].mean((-3, -2, -1)), y)
+                r_loss_b = rank_loss(scores[1].mean((-3, -2, -1)), y)
+                loss += (
+                    p_loss_a + p_loss_b + 0.3 * r_loss_a + 0.3 * r_loss_b
+                )  # + 0.2 * o_loss
+
+            if plus_plus:
+                if i == 0:
+                    print("In DOVER++ training")
+                y_a = data["gt_label_a"].float().detach().to(device).unsqueeze(-1)
+                y_t = data["gt_label_t"].float().detach().to(device).unsqueeze(-1)
+                p_loss_a = plcc_loss(scores[0].mean((-3, -2, -1)), y_a)
+                p_loss_b = plcc_loss(scores[1].mean((-3, -2, -1)), y_t)
+                r_loss_a = rank_loss(scores[0].mean((-3, -2, -1)), y_a)
+                r_loss_b = rank_loss(scores[1].mean((-3, -2, -1)), y_t)
+                loss += 0.5 * (
+                    p_loss_a + p_loss_b + 0.3 * r_loss_a + 0.3 * r_loss_b
+                )  # + 0.2 * o_loss
 
         wandb.log(
             {"train/total_loss": loss.item(),}
         )
 
-        loss.backward()
-        optimizer.step()
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
         scheduler.step()
 
         # ft_loader.dataset.refresh_hypers()
@@ -366,6 +359,7 @@ def main():
                 batch_size=opt["batch_size"],
                 num_workers=opt["num_workers"],
                 shuffle=True,
+                persistent_workers=True,
             )
 
         val_datasets = {}
@@ -384,6 +378,7 @@ def main():
                 batch_size=1,
                 num_workers=opt["num_workers"],
                 pin_memory=True,
+                persistent_workers=True,
             )
 
         run = wandb.init(

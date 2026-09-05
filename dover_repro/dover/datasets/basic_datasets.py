@@ -48,6 +48,28 @@ class Cv2VideoReader:
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         return torch.from_numpy(np.ascontiguousarray(rgb))
 
+    def read_frames(self, inds):
+        """顺序解码并收集指定帧（比逐帧随机 seek 快 2~4 倍）。
+
+        返回 {帧索引: uint8 torch.Tensor [H, W, 3] RGB}。
+        """
+        want = {int(i) for i in inds}
+        self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        out = {}
+        i = 0
+        while self.cap.grab():
+            if i in want:
+                ret, frame = self.cap.retrieve()
+                assert ret, f"顺序解码失败: idx={i}"
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                out[i] = torch.from_numpy(np.ascontiguousarray(rgb))
+                if len(out) == len(want):
+                    break
+            i += 1
+        assert len(out) == len(want), (
+            f"顺序解码缺帧: 期望 {len(want)} 实际 {len(out)}（总数 {self.n}）")
+        return out
+
 
 def get_spatial_fragments(
     video,
