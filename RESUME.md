@@ -15,7 +15,7 @@ VQA 课程设计（第3组），答辩 2026-09-11。(A) baseline 完成（SROCC=
   - `runs/divide_semisup_v2/metrics.json`：手工重建的轮次 1~4 历史（轮2 为精确值，轮1/3/4 为日志 4 位小数）
   - 轮次 3/4 未提升（早停计数 2/3）；轮次 5 B.2 尚未出结果
 - **断点续训功能已实现**（`--resume-round N [--skip-b1]`，见 scripts/train_semisup.py + vqa/semisup.py）：加载 pool.json + metrics.json，从第 N 轮继续；`--skip-b1` 跳过该轮 B.1 直接 B.2。重启后须先冒烟测试再上真数据。
-- **分支**：`Vzixing`（本地训练相关修改都在这）；`main` 有标注重建提交。均已推送 GitHub。
+- **分支**：`Vzixing`（本地训练相关修改都在这）；`main` 有标注重建提交。均已推送 GitHub。**待推送**：本地提交 `e741117`（断点续训 + 9/5 进度保存，9/5 12:35 时 GitHub 连接被重置未推成功），重启后执行 `git push origin Vzixing`。
 
 ## 环境
 
