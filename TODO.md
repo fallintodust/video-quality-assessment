@@ -26,7 +26,9 @@
 
 - [x] (A) baseline：**SROCC=0.6723 / PLCC=0.6723 / OBJ=1.3446**（best@epoch4，909 锁定验证集）
 - [x] (B) 半监督 v1（默认配置 var 0.2 / weight 0.5）：全部 4 轮低于 baseline（早停 3/3），结论：伪标签压缩偏差 + 回喂权重过大，详见 `docs/semisup_experiment_report.md`
-- [ ] (B) 半监督 v2（重标定 + weight 0.2 + var 0.05 + 裁剪）：2026-09-03 20:10 启动，进行中
+- [x] (B) 半监督 v2（重标定 + weight 0.2 + var 0.05 + 裁剪）：**轮次 2 best SROCC=0.6897 / PLCC=0.6561 / OBJ=1.3457 反超 baseline**；轮次 5 B.2 组内决定跳过（轮 3/4 连续无提升）
+- [x] eval_val 高精度复核最终权重（SROCC=0.689669 / PLCC=0.656080 / OBJ=1.345750）
+- [ ] CAMP-VQA 零样本对照实验：**已交接 Peter**（docs/campvqa_handoff.md），待其回报结果后补 README 实验表
 - [ ] 全部完成后取 OBJ 最优权重 → `predict.py` 出最终 `score.txt`
 
 ## 🟢 问题判定（三条支线）

@@ -1,0 +1,7 @@
+设备: cuda  fp16: True  帧缓存: data/frames_cache
+验证标注视频数: 909
+权重: runs/divide_semisup_v2 (tag=_best)
+SROCC = 0.689669
+PLCC  = 0.656080
+OBJ   = 1.345750
+分数已保存: runs/divide_semisup_v2/val_scores_best.txt（909 条）
