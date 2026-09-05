@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import torch
 
+from vqa.config import Config
 from vqa.dataset import VideoDataset, list_videos, natural_key
 from vqa.metrics import total_score
 from vqa.train_utils import build_model, get_device, score_videos
@@ -38,10 +39,14 @@ def main():
     p.add_argument("--bs", type=int, default=4)
     p.add_argument("--t", type=int, default=8, help="每视频抽帧数")
     p.add_argument("--precision", type=int, default=2, help="分数小数位")
+    p.add_argument("--fp16", action="store_true", help="fp16 推理加速")
+    p.add_argument("--frame-cache", default="",
+                   help="预抽帧缓存目录（scripts/precache_frames.py 生成）")
     args = p.parse_args()
 
+    Config.FRAME_CACHE = args.frame_cache or None
     device = get_device()
-    print(f"设备: {device}")
+    print(f"设备: {device}  fp16: {args.fp16}")
 
     names = list_videos(args.videos)
     if not names:
@@ -60,7 +65,8 @@ def main():
 
     ds = VideoDataset.unlabeled(args.videos, names, T=args.t)
     t0 = time.time()
-    scores = score_videos(model, ds, device, batch_size=args.bs)
+    scores = score_videos(model, ds, device, batch_size=args.bs,
+                          use_fp16=args.fp16)
     elapsed = time.time() - t0
 
     with open(args.out, "w", encoding="utf-8") as f:

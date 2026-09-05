@@ -24,16 +24,32 @@ def main():
     p.add_argument("--baseline", default="runs/baseline", help="baseline 权重目录")
     p.add_argument("--out", default="runs/semisup", help="输出目录")
     p.add_argument("--pseudo-rounds", type=int, default=Config.PSEUDO_ROUNDS)
+    p.add_argument("--resume-round", type=int, default=0,
+                   help="断点续训：从指定轮次继续（加载 out/pool.json；若存在 metrics.json 则续历史与早停计数）")
+    p.add_argument("--skip-b1", action="store_true",
+                   help="配合 --resume-round：跳过恢复轮次的 B.1 伪标签生成，直接用已加载池做 B.2")
     p.add_argument("--n-runs", type=int, default=Config.N_RUNS, help="每轮独立训练次数")
     p.add_argument("--sub-ratio", type=float, default=Config.SUB_RATIO)
     p.add_argument("--sub-epochs", type=int, default=Config.SUB_EPOCHS)
     p.add_argument("--var-threshold", type=float, default=Config.VAR_THRESHOLD)
     p.add_argument("--pseudo-weight", type=float, default=Config.PSEUDO_WEIGHT)
+    p.add_argument("--pseudo-debias", action="store_true",
+                   help="伪标签 MOS 重标定：均值/方差对齐训练真标注分布"
+                        "（修正模型打分的压缩偏差）")
+    p.add_argument("--pseudo-clip", action="store_true",
+                   help="伪标签 MOS 裁剪到 [1, 5]（模型输出可能越界）")
     p.add_argument("--val-epochs", type=int, default=Config.VAL_EPOCHS)
     p.add_argument("--early-stop", type=int, default=Config.EARLY_STOP)
     p.add_argument("--hide-ratio", type=float, default=Config.HIDE_RATIO,
-                   help="把多少比例的标注样本隐藏为'未标注'（模拟半监督场景）")
+                   help="把多少比例的标注样本隐藏为'未标注'（模拟半监督场景；"
+                        "给定 --val-labels 时忽略）")
     p.add_argument("--val-ratio", type=float, default=Config.VAL_RATIO)
+    p.add_argument("--val-labels", default="",
+                   help="独立验证标注文件（锁定验证集；目录中不在训练标注里的视频"
+                        "视为'未标注'进入伪标签池）")
+    p.add_argument("--fp16", action="store_true", help="fp16 混合精度训练")
+    p.add_argument("--frame-cache", default="",
+                   help="预抽帧缓存目录（scripts/precache_frames.py 生成）")
     p.add_argument("--bs", type=int, default=Config.BATCH_SIZE)
     p.add_argument("--lr", type=float, default=Config.LR)
     p.add_argument("--t", type=int, default=Config.T)
@@ -41,9 +57,10 @@ def main():
     p.add_argument("--log-interval", type=int, default=10)
     args = p.parse_args()
 
-    # 阈值/权重写入全局配置（供 semisup 内部使用）
+    # 阈值/权重/帧缓存写入全局配置（供 semisup 内部使用）
     Config.VAR_THRESHOLD = args.var_threshold
     Config.PSEUDO_WEIGHT = args.pseudo_weight
+    Config.FRAME_CACHE = args.frame_cache or None
     run_semisup(args)
 
 
