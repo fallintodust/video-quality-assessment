@@ -24,6 +24,10 @@ def main():
     p.add_argument("--baseline", default="runs/baseline", help="baseline 权重目录")
     p.add_argument("--out", default="runs/semisup", help="输出目录")
     p.add_argument("--pseudo-rounds", type=int, default=Config.PSEUDO_ROUNDS)
+    p.add_argument("--resume-round", type=int, default=0,
+                   help="断点续训：从指定轮次继续（加载 out/pool.json；若存在 metrics.json 则续历史与早停计数）")
+    p.add_argument("--skip-b1", action="store_true",
+                   help="配合 --resume-round：跳过恢复轮次的 B.1 伪标签生成，直接用已加载池做 B.2")
     p.add_argument("--n-runs", type=int, default=Config.N_RUNS, help="每轮独立训练次数")
     p.add_argument("--sub-ratio", type=float, default=Config.SUB_RATIO)
     p.add_argument("--sub-epochs", type=int, default=Config.SUB_EPOCHS)

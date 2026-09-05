@@ -208,29 +208,65 @@ def run_semisup(args):
             "round": 0, "pool_size": 0}
     no_improve = 0
     history = []
+    start_round = 1
+    out_metrics = os.path.join(args.out, "metrics.json")
 
-    for rnd in range(1, args.pseudo_rounds + 1):
-        print(f"\n===== 轮次 {rnd}/{args.pseudo_rounds} | B.1 伪标签生成 =====")
-        new_pseudo = pseudo_label_round(
-            model_template, args.data_dir, train_labels, pool, unlabeled_names,
-            args.n_runs, args.sub_ratio, args.sub_epochs, args.lr, args.bs,
-            device, args.seed + rnd * 1000, args.t, args.log_interval,
-            use_fp16=use_fp16)
-        for n, (mos, var) in new_pseudo.items():
-            pool[n] = (mos, var)
-        if getattr(args, "pseudo_debias", False):
-            pool = debias_pool(pool, train_labels)
-        if getattr(args, "pseudo_clip", False):
-            pool = {n: (min(max(mos, 1.0), 5.0), var)
-                    for n, (mos, var) in pool.items()}
-        if getattr(args, "pseudo_debias", False) or getattr(args, "pseudo_clip", False):
-            _mos = np.array([v[0] for v in pool.values()])
-            print(f"  伪标签修正后: mean={_mos.mean():.3f} std={_mos.std():.3f} "
-                  f"min={_mos.min():.3f} max={_mos.max():.3f}")
-        print(f"本轮新增伪标签 {len(new_pseudo)} 个，累积 {len(pool)} 个")
-        with open(os.path.join(args.out, "pool.json"), "w", encoding="utf-8") as f:
-            json.dump({n: {"mos": v[0], "var": v[1]} for n, v in pool.items()},
-                      f, ensure_ascii=False, indent=2)
+    # 断点续训：加载已累积的伪标签池与（若存在）历史/早停计数
+    resume_round = getattr(args, "resume_round", 0) or 0
+    skip_b1 = False
+    if resume_round > 1:
+        pool_path = os.path.join(args.out, "pool.json")
+        if not os.path.exists(pool_path):
+            raise SystemExit(f"恢复失败: 找不到 {pool_path}")
+        with open(pool_path, encoding="utf-8") as f:
+            raw = json.load(f)
+        pool = {n: (v["mos"], v["var"]) for n, v in raw.items()}
+        overlap = set(pool) & (set(train_labels) | set(val_labels))
+        if overlap:
+            raise SystemExit(f"恢复失败: pool 与训练/验证标注重叠 {len(overlap)} 个视频")
+        stray = [n for n in pool if n not in unlabeled_names]
+        for n in stray:
+            pool.pop(n)
+        if stray:
+            print(f"警告: pool 中 {len(stray)} 个视频不在当前未标注列表，已丢弃")
+        if os.path.exists(out_metrics):
+            with open(out_metrics, encoding="utf-8") as f:
+                prev = json.load(f)
+            history = prev.get("history", [])
+            best = prev.get("best", best)
+            no_improve = len([e for e in history
+                              if e.get("round", 0) > best.get("round", 0)])
+        start_round = resume_round
+        skip_b1 = bool(getattr(args, "skip_b1", False))
+        print(f"恢复模式: 从轮次 {start_round}{'（跳过 B.1）' if skip_b1 else ''} 开始，"
+              f"已加载伪标签池 {len(pool)} 个，历史 {len(history)} 条")
+
+    for rnd in range(start_round, args.pseudo_rounds + 1):
+        if skip_b1 and rnd == start_round:
+            print(f"\n===== 轮次 {rnd}/{args.pseudo_rounds} | 跳过 B.1"
+                  f"（使用已加载池 {len(pool)} 个） =====")
+        else:
+            print(f"\n===== 轮次 {rnd}/{args.pseudo_rounds} | B.1 伪标签生成 =====")
+            new_pseudo = pseudo_label_round(
+                model_template, args.data_dir, train_labels, pool, unlabeled_names,
+                args.n_runs, args.sub_ratio, args.sub_epochs, args.lr, args.bs,
+                device, args.seed + rnd * 1000, args.t, args.log_interval,
+                use_fp16=use_fp16)
+            for n, (mos, var) in new_pseudo.items():
+                pool[n] = (mos, var)
+            if getattr(args, "pseudo_debias", False):
+                pool = debias_pool(pool, train_labels)
+            if getattr(args, "pseudo_clip", False):
+                pool = {n: (min(max(mos, 1.0), 5.0), var)
+                        for n, (mos, var) in pool.items()}
+            if getattr(args, "pseudo_debias", False) or getattr(args, "pseudo_clip", False):
+                _mos = np.array([v[0] for v in pool.values()])
+                print(f"  伪标签修正后: mean={_mos.mean():.3f} std={_mos.std():.3f} "
+                      f"min={_mos.min():.3f} max={_mos.max():.3f}")
+            print(f"本轮新增伪标签 {len(new_pseudo)} 个，累积 {len(pool)} 个")
+            with open(os.path.join(args.out, "pool.json"), "w", encoding="utf-8") as f:
+                json.dump({n: {"mos": v[0], "var": v[1]} for n, v in pool.items()},
+                          f, ensure_ascii=False, indent=2)
 
         print(f"===== 轮次 {rnd} | B.2 验证/微调 =====")
         model, m = validation_round(
@@ -253,12 +289,18 @@ def run_semisup(args):
             print(f"  未提升 (连续 {no_improve}/{args.early_stop})")
         del model
         torch.cuda.empty_cache()
+
+        # 每轮结束即落盘 summary，中断后可从 --resume-round 续跑
+        summary = {"best": best, "history": history, "pool_size": len(pool)}
+        with open(out_metrics, "w", encoding="utf-8") as f:
+            json.dump(summary, f, ensure_ascii=False, indent=2)
+
         if no_improve >= args.early_stop:
             print("触发早停")
             break
 
     summary = {"best": best, "history": history, "pool_size": len(pool)}
-    with open(os.path.join(args.out, "metrics.json"), "w", encoding="utf-8") as f:
+    with open(out_metrics, "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
     print(f"\n完成。best: round={best['round']} SROCC={best['SROCC']:.4f} "
           f"PLCC={best['PLCC']:.4f} OBJ={best['OBJ']:.4f}")

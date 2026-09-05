@@ -1,0 +1,223 @@
+pages: 18
+===== PAGE 1 =====
+第一组学生分组：3-4人一个小组
+1 徐晶晶 2023111701 计算学部 2303101
+第一组
+QQ：
+1106130463
+8月31日 周一 G709 上午8:30 
+集中宣讲
+8月31日 周一 1-4节 G709  
+分组及项目说明
+9月2日 周三 1-4节 G709   
+项目答疑
+9月8日 周二 1-4节 G709   
+项目答疑
+9月11日 周五 1-4节 G709   
+分组答辩
+2 鲁永哲 2023111813 计算学部 2303101
+3 刘锦澎 2023112005 计算学部 2303101
+4 周毅 2023112016 计算学部 2303101
+5 章正 2023112109 计算学部 2303101
+6 唐文剑 2023112129 计算学部 2303101
+7 ？？？
+8 杨建松 2023112242 计算学部 2303101
+9 方博文 2023112286 计算学部 2303101
+10 周逸 2023112291 计算学部 2303101
+11 ALEKSEEV 
+PETR 2023130006 计算学部 2303101
+12 黄彤 2023112379 计算学部 2303101
+1组
+2组
+3组
+组长
+组长
+组长
+
+===== PAGE 2 =====
+第1组：基于开源模型的多模态情感分析系统
+项目背景：情感交流是人机交流的重要内容和高端需求
+任务目标：基于现有的开源大模型和情感分析模型，实现实时的情感交流
+任务要求
+1. 通过摄像头实时获取面部表情，麦克风实时检测说话音频，当检测到话语
+时，开始实行视频录制，直到话语结束为止。
+2. 将录制到的音频转化为文本进行存储。
+3. 将录制的视频和文本通过模型进行特征提取，并输入到情感分析模型中得
+到情感状态。
+4. 将情感状态与说话者的文本结合，共同输入到大语言模型中，得到回复文
+本，并进行存储。
+5. 显示对话内容。
+===== PAGE 3 =====
+系统构成
+• 检测端：摄像头、麦克风
+• 分析端：视频特征提取、音频转文本技术（TTS）、情感分析模
+型、大语言模型
+• 存储端：数据库（将TTS得到的文本和大模型反馈的文本内容组
+合成多轮对话，存储对话内容）
+• 显示端：视频显示（用于显示摄像头实时获取的人脸图像帧）、
+对话显示（显示对话内容）、状态显示（显示情感分析模型名称、
+大语言模型名称、数据库数据量等）
+详见 任务书.pdf
+===== PAGE 4 =====
+参考界面
+
+===== PAGE 5 =====
+项目资料
+• 情感分析数据集和模型：https://github.com/iyuge2/MMSA
+• 数据处理模型：
+https://github.com/iyuge2/MMSA/tree/master/data
+• 前端技术：pyqt5或其它皆可
+• TTS技术：https://github.com/openai/whisper
+• 话语检测技术：可利用pyaudio进行实现
+• 大模型部署：https://github.com/meta-llama/llama （7B即可）
+===== PAGE 6 =====
+(no text)
+===== PAGE 7 =====
+其他要求
+• 鼓励使用多人协作工具：git  repo  飞书
+• 鼓励AI辅助：AI工具的使用（在报告中提交使用AI的对话记录）
+提交物
+• 系统源代码
+• 答辩PPT（内含演示视频或图片）
+• 实践报告（每人1份）
+===== PAGE 8 =====
+第2组：基于单目视觉的人体姿态检测系统
+项目背景：人体姿态估计（Human Pose Estimation, HPE）是计算
+机视觉领域的核心任务之一，旨在从单张RGB图像或视频中定位人
+体关节点（如头、肩、肘、腕、髋、膝、踝等）的二维或三维坐标。
+单目视觉方案仅依赖普通摄像头，无需深度传感器或穿戴式设备，
+具有成本低、部署灵活的优势。近年来，该技术已广泛应用于智能
+监控、人机交互、运动康复分析、虚拟现实（VR/AR）驱动、健身
+动作纠正等场景。随着深度学习的发展，基于卷积神经网络（CNN）
+和Transformer的检测方法（如OpenPose、HRNet、RTMPose等）在
+公开基准上取得了显著进展。然而，实际部署中仍面临遮挡处理、
+实时性约束、多人场景下的身份保持等挑战。
+===== PAGE 9 =====
+任务目标及要求：
+1. 理解人体姿态估计的基本任务形式，能够说明2D与3D姿态估计、单人与多人姿态估计的基
+本区别。
+2. 选择至少一种已有开源模型进行复现，不要求从零设计或实现网络结构。能够说明所选模
+型的基本原理、输入输出、数据处理方式、评价指标、运行环境及复现结果。
+3. 完成单人场景和多人场景的姿态估计演示，并将关键点或骨架结果可视化。可选择2D或3D
+作为主要技术路线。
+4. 在相应公开数据集或官方提供的测试数据上运行模型，并使用与该模型/数据集匹配的标
+准评价指标进行基本评价。
+5. 自行拍摄一段人体运动视频，完成模型推理并输出带姿态结果的视频
+===== PAGE 10 =====
+评价指标
+⚫2D评估指标：使用OKS（Object Keypoint Similarity）计算mAP@0.5:0.95、
+mAP@0.5；MPII数据集使用PCKh@0.5（以头部尺寸归一化）
+⚫3D评估指标（如选做）：MPJPE（Mean Per Joint Position Error）、PA-
+MPJPE（Procrustes对齐后误差）
+===== PAGE 11 =====
+数据集
+1. COCO Keypoints 2017（推荐，2D多人）
+•下载地址：
+•训练图像：http://images.cocodataset.org/zips/train2017.zip
+•验证图像：http://images.cocodataset.org/zips/val2017.zip
+•标注文件：http://images.cocodataset.org/annotations/annotations_trainval2017.zip
+•官网：http://cocodataset.org/
+2. MPII Human Pose（2D单人/多人） 早期经典基准，适合快速实验与验证
+•下载地址：
+•图像：http://datasets.d2.mpi-inf.mpg.de/andriluka14cvpr/mpii_human_pose_v1.tar.gz
+•标注：http://datasets.d2.mpi-inf.mpg.de/andriluka14cvpr/mpii_human_pose_v1_u12_2.zip
+•官网：http://human-pose.mpi-inf.mpg.de/
+3. Human3.6M（3D姿态估计）
+•获取方式：需官网注册申请（http://vision.imar.ro/human3.6m/），审批可能需要数天。
+•备用镜像（标注与图像分离下载）：
+•标注：http://visiondata.cis.upenn.edu/volumetric/h36m/h36m_annot.tar
+•图像（按受试者分卷）：http://visiondata.cis.upenn.edu/volumetric/h36m/S1.tar（S5/S6/S7/S8/S9/S11同理）
+•预处理工具：推荐使用MMPose提供的脚本自动提取帧与标注。
+===== PAGE 12 =====
+• 参考资料
+1. RTMPose: Real-Time Multi-Person Pose Estimation based on MMPose (arXiv:2303.07399) — 强烈推荐作为
+入门首选，文档完善，社区活跃。
+2. HRNet: Deep High-Resolution Representation Learning for Visual Recognition (TPAMI 2020)。
+3. OpenPose: Realtime Multi-Person 2D Pose Estimation using Part Affinity Fields (CVPR 2017)。
+4. SimpleBaseline: Simple Baselines for Human Pose Estimation and Tracking (ECCV 2018)。
+5. BlazePose: BlazePose: On-device Real-time Body Pose Tracking (arXiv:2006.10204)。
+6. 综述: 基于深度学习的单目人体姿态估计方法综述（腾讯云开发者社区）
+7. RTMPose / SimCC: SimCC: A Simple Coordinate Classification Perspective for Human Pose Estimation
+（ECCV 2022）
+8. ViTPose / ViTPose++: ViTPose: Simple Vision Transformer Baselines for Human Pose Estimation（NeurIPS
+2022）；ViTPose++: Vision Transformer for Generic Body Pose Estimation（IEEE TPAMI 2024）
+9. RTMO: RTMO: Towards High-Performance One-Stage Real-Time Multi-Person Pose Estimation（CVPR 
+2024）
+10. MotionBERT: MotionBERT: A Unified Perspective on Learning Human Motion Representations（ICCV 2023）
+11. PoseFormerV2: PoseFormerV2: Exploring Frequency Domain for Efficient and Robust 3D Human Pose 
+Estimation（CVPR 2023）
+12. MotionAGFormer: MotionAGFormer: Enhancing 3D Human Pose Estimation With a Transformer-
+GCNFormer Network（WACV 2024）— 将 Transformer 的全局时空
+13. 4D-Humans: Humans in 4D: Reconstructing and Tracking Humans with Transformers（ICCV 2023）
+===== PAGE 13 =====
+其他要求
+• 鼓励使用多人协作工具：git  repo  飞书
+• 鼓励AI辅助：AI工具的使用（在报告中提交使用AI的对话记录）
+提交物
+• 系统源代码
+• 答辩PPT（内含演示视频或图片）
+• 实践报告（每人1份）
+详见 任务书.pdf
+===== PAGE 14 =====
+第3组：视频质量评估系统
+项目背景：随着5G网络、超高清视频和流媒体技术的快速发展，
+视频已成为信息传递的核心载体。然而，在视频采集、压缩、传
+输及播放过程中，常因器件性能、网络波动、编解码失真等因素
+导致画质受损，例如卡顿、模糊、伪影、色彩失真等问题，直接
+影响用户体验。如何精准评估视频质量并针对性优化，成为提升
+视频服务竞争力的关键技术挑战。
+任务目标：使用提供的视频训练集用于视频质量评价（VQA）
+算法效果的开发和评估，最终PLCC及SROCC结果逼近1为最优。
+===== PAGE 15 =====
+评价指标
+⚫SROCC（排序一致性）
+• 𝑆𝑅𝑂𝐶𝐶 = 1 −
+6 σ𝑖=1
+𝑁 (𝑣𝑖−𝑝𝑖)2
+𝑁(𝑁2−1)
+⚫PLCC（线性相关性）
+• 𝑃𝐿𝐶𝐶 =
+σ𝑖=1
+𝑁 𝑦𝑖− ത𝑦 ො𝑦𝑖− തො𝑦
+σ𝑖=1
+𝑁 𝑦𝑖− ത𝑦 2 σ𝑖=1
+𝑁 ො𝑦𝑖− തො𝑦
+2
+⚫总分公式
+• 𝑆𝑐𝑜𝑟𝑒 =
+𝑆𝑅𝑂𝐶𝐶+𝑃𝐿𝐶𝐶
+2 − 𝑚𝑖𝑛 1.0, 0.01 × max(0, 𝑇 − 20)
+数据集
+视频下载地址：https://huggingface.co/datasets/teowu/DIVIDE-
+MaxWell/resolve/main/videos.zip
+train_lable_train.txt是训练集标注
+train_lable_test.txt是验证集标注
+===== PAGE 16 =====
+任务需求
+1.输入：
+• 若干测试集视频文件（视频帧数不定，分辨率不定），video1，video2，…，videoN具体
+2.输出：
+• 一个score.txt文件，其中包含各个视频的VQA分数，格式如下：
+• video1: 9.0
+• video2: 21.6
+• video3: 82.0
+• video4: 60.4
+• ……
+===== PAGE 17 =====
+• 参考资料
+• [1] Deep Residual Learning for Image Recognition
+• [2] An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale
+• [3] ReLaX-VQA: Residual Fragment and Layer Stack 1 Extraction for Enhancing Video Quality
+Assessmen
+• [4] Temporal Segment Networks: Towards Good Practices for Deep Action Recognition
+• [5] Patch-VQ: ‘Patching Up’ the Video Quality Problem
+• [6] Adam: A Method for Stochastic Optimization
+详见 任务书.pdf
+===== PAGE 18 =====
+其他要求
+• 鼓励使用多人协作工具：git  repo  飞书
+• 鼓励AI辅助：AI工具的使用（在报告中提交使用AI的对话记录）
+提交物
+• 系统源代码
+• 答辩PPT（内含演示视频或图片）
+• 实践报告（每人1份）
