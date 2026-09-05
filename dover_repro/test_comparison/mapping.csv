@@ -1,0 +1,15 @@
+video,source,distortion
+video1,bbb1_clean,pristine
+video2,bbb1_mid,compression_600k
+video3,bbb1_heavy,compression_200k
+video4,bbb2_clean,pristine
+video5,bbb2_flicker_s04,flicker_s0.4
+video6,sintel_clean,pristine
+video7,sintel_mid,compression_400k
+video8,sintel_flicker_s06,flicker_s0.6
+video9,sintel_freeze_s05,freeze_s0.5
+video10,trailer_clean,pristine
+video11,trailer_heavy,compression_150k
+video12,synth_clean,synthetic_MOS92
+video13,synth_mid,synthetic_MOS50
+video14,synth_bad,synthetic_MOS10

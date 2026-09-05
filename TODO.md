@@ -21,6 +21,7 @@
   - 已从原版 MaxWell 仓库（VQAssessment/ExplainableVQA）重建等效标注（examplar 分值与 CSV O 列 Pearson=1.0，覆盖全部 4543 视频）
   - 官方下发后运行 `scripts/build_course_labels.py --compare-train ... --compare-test ...` 校验；不一致则用官方文件重训
 - [ ] **答辩测试视频**：放 `data/test_videos/` 后 `predict.py` 出 `score.txt`（注意 20 分钟耗时扣分）
+  - 已用 14 个训练集外视频自测：自研模型 + DOVER 各出一份打分表（`dover_repro/test_comparison/`）
 
 ## 🟡 打分训练（主线，A+B 任务书流程）
 
@@ -28,6 +29,8 @@
 - [x] (B) 半监督 v1（默认配置 var 0.2 / weight 0.5）：全部 4 轮低于 baseline（早停 3/3），结论：伪标签压缩偏差 + 回喂权重过大，详见 `docs/semisup_experiment_report.md`
 - [x] (B) 半监督 v2（重标定 + weight 0.2 + var 0.05 + 裁剪）：**轮次 2 best SROCC=0.6897 / PLCC=0.6561 / OBJ=1.3457 反超 baseline**；轮次 5 B.2 组内决定跳过（轮 3/4 连续无提升）
 - [x] eval_val 高精度复核最终权重（SROCC=0.689669 / PLCC=0.656080 / OBJ=1.345750）
+- [x] DOVER 复现（`dover_repro/`）：零样本 SROCC=0.7110 / PLCC=0.7053；测试集对比 11/11 排序全对（详见 `docs/test_comparison_report.md`）
+- [ ] DOVER++ 微调复现（目标 0.8071/0.8126）→ 训练启动后监控
 - [ ] CAMP-VQA 零样本对照实验：**已交接 Peter**（docs/campvqa_handoff.md），待其回报结果后补 README 实验表
 - [ ] 全部完成后取 OBJ 最优权重 → `predict.py` 出最终 `score.txt`
 
