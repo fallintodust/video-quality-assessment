@@ -1,7 +1,7 @@
 name: DOVER
-num_epochs: 7
+num_epochs: 3
 l_num_epochs: 0
-warmup_epochs: 2.5
+warmup_epochs: 1.0
 ema: true
 save_model: true
 batch_size: 4
