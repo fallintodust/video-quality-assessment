@@ -139,6 +139,24 @@ python scripts/predict.py --model runs/divide_semisup/model_best.pt \
 
 ## 实验记录
 
+### DOVER 复现与测试集对比（2026-09-06）
+
+官方 ICCV 2023 DOVER（DIVIDE-MaxWell 数据集的同源基线）已复现并入库（`dover_repro/`，Windows/torch2.5 适配 + LFS 权重）：
+
+| 实验 | SROCC | PLCC | 备注 |
+|---|---|---|---|
+| DOVER 零样本（DOVER.pth，未用 MaxWell 训练）| 0.7110 | 0.7053 | 909 验证集全量；官方报告 0.7477/0.7546 |
+| DOVER++ 微调（官方报告，目标） | 0.8071 | 0.8126 | `training_with_divide.py` 复现进行中 |
+
+**测试集对比（14 个训练集外视频：Blender CC 电影 × 压缩/闪烁/冻结变体 + 已知 MOS 合成视频）**，详见 `docs/test_comparison_report.md`：
+
+| 模型 | 期望排序对正确率 | 两模型一致性 |
+|---|---|---|
+| DOVER 零样本 | **11/11** ✅ | SROCC=0.8009 |
+| 自研模型（半监督 v2 best） | 9/11 ❌（真实内容闪烁/冻结排序失效） | PLCC=0.8395 |
+
+结论：DOVER 对时域失真（闪烁/冻结）的排序能力显著更强；自研模型在真实内容上的时域敏感度不足，是后续改进方向。
+
 ### 合成数据自测
 
 | 阶段 | SROCC | PLCC | OBJ | 备注 |

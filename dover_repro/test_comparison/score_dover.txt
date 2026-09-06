@@ -1,0 +1,14 @@
+video1.mp4: 41.9
+video2.mp4: 39.7
+video3.mp4: 30.2
+video4.mp4: 38.1
+video5.mp4: 25.4
+video6.mp4: 47.3
+video7.mp4: 37.5
+video8.mp4: 17.9
+video9.mp4: 24.4
+video10.mp4: 63.8
+video11.mp4: 52.9
+video12.mp4: 63.0
+video13.mp4: 13.1
+video14.mp4: 1.1
