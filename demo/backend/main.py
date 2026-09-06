@@ -72,8 +72,8 @@ def _save_tmp(file: UploadFile) -> str:
 
 
 @app.post("/api/predict")
-async def predict_video(model_id: str, file: UploadFile = File(...)):
-    """指定模型打分 + 失真问题反馈。"""
+def predict_video(model_id: str, file: UploadFile = File(...)):
+    """指定模型打分 + 失真问题反馈（同步 def → FastAPI 线程池，不阻塞事件循环）。"""
     tmp_path = _save_tmp(file)
     try:
         predictor = model_registry.get_model(model_id)

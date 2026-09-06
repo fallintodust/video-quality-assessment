@@ -1,0 +1,1 @@
+Get-CimInstance Win32_Process -Filter "name='python.exe'" | Where-Object { $_.CommandLine -match 'training_with_divide|multiprocessing.spawn' } | ForEach-Object { Write-Host ('killing ' + $_.ProcessId + ': ' + $_.CommandLine.Substring(0,[Math]::Min(50,$_.CommandLine.Length))); Stop-Process -Id $_.ProcessId -Force }

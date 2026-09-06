@@ -4,6 +4,8 @@ import random
 import cv2
 import numpy as np
 import skvideo.io
+import subprocess
+import shutil
 import torch
 import torchvision
 from tqdm import tqdm
@@ -19,6 +21,7 @@ class Cv2VideoReader:
     """
 
     def __init__(self, path):
+        self.path = path
         self.cap = cv2.VideoCapture(path)
         assert self.cap.isOpened(), f"无法打开视频: {path}"
         self.n = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -49,11 +52,57 @@ class Cv2VideoReader:
         return torch.from_numpy(np.ascontiguousarray(rgb))
 
     def read_frames(self, inds):
-        """顺序解码并收集指定帧（比逐帧随机 seek 快 2~4 倍）。
+        """顺序解码并收集指定帧。
+
+        优先用 ffmpeg 子进程管线（每视频独立进程，彻底隔离 cv2/FFmpeg
+        并发死锁与原生崩溃）；不可用时回退 cv2 顺序解码。
 
         返回 {帧索引: uint8 torch.Tensor [H, W, 3] RGB}。
         """
         want = {int(i) for i in inds}
+        try:
+            return self._read_frames_ffmpeg(want)
+        except Exception:
+            return self._read_frames_cv2(want)
+
+    def _read_frames_ffmpeg(self, want):
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            raise RuntimeError("未找到 ffmpeg")
+        cap = cv2.VideoCapture(self.path)
+        if not cap.isOpened():
+            cap.release()
+            raise IOError(f"无法打开视频: {self.path}")
+        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        cap.release()
+        assert w > 0 and h > 0, f"尺寸异常: {w}x{h}"
+
+        cmd = [ffmpeg, "-v", "error", "-i", self.path,
+               "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                stderr=subprocess.DEVNULL)
+        out = {}
+        i = 0
+        frame_bytes = w * h * 3
+        try:
+            while len(out) < len(want):
+                buf = proc.stdout.read(frame_bytes)
+                if len(buf) < frame_bytes:
+                    break
+                if i in want:
+                    arr = np.frombuffer(buf, np.uint8).reshape(h, w, 3)
+                    out[i] = torch.from_numpy(np.ascontiguousarray(arr))
+                i += 1
+        finally:
+            if proc.poll() is None:
+                proc.terminate()
+            proc.wait(timeout=10)
+        assert len(out) == len(want), (
+            f"ffmpeg 解码缺帧: 期望 {len(want)} 实际 {len(out)}（总数 {self.n}）")
+        return out
+
+    def _read_frames_cv2(self, want):
         self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
         out = {}
         i = 0
@@ -67,7 +116,7 @@ class Cv2VideoReader:
                     break
             i += 1
         assert len(out) == len(want), (
-            f"顺序解码缺帧: 期望 {len(want)} 实际 {len(out)}（总数 {self.n}）")
+            f"cv2 顺序解码缺帧: 期望 {len(want)} 实际 {len(out)}（总数 {self.n}）")
         return out
 
 

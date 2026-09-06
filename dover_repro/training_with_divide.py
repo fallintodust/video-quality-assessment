@@ -107,6 +107,9 @@ def finetune_epoch(
     use_amp = device == "cuda"
     scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
     for i, data in enumerate(tqdm(ft_loader, desc=f"Training in epoch {epoch}")):
+        if "gt_label" not in data:
+            print("跳过解码失败视频:", data.get("name"))
+            continue
         optimizer.zero_grad()
         video = {}
         for key in sample_types:
@@ -204,6 +207,9 @@ def inference_set(
     for i, data in enumerate(tqdm(inf_loader, desc="Validating")):
         result = dict()
         video, video_up = {}, {}
+        if "gt_label" not in data:
+            print("跳过解码失败视频:", data.get("name"))
+            continue
         for key in sample_types:
             if key in data:
                 video[key] = data[key].to(device)
@@ -279,6 +285,14 @@ def inference_set(
                 {"state_dict": state_dict, "validation_results": best_,},
                 f"pretrained_weights/{save_name}_{suffix}_finetuned.pth",
             )
+
+    # 每次验证都保存 latest（防 worker 崩溃丢失进度，便于续跑）
+    if save_model:
+        torch.save(
+            {"state_dict": model.state_dict(),
+             "validation_results": (s, p, k, r)},
+            f"pretrained_weights/{save_name}_{suffix}_latest.pth",
+        )
 
     best_s, best_p, best_k, best_r = (
         max(best_s, s),
@@ -359,7 +373,6 @@ def main():
                 batch_size=opt["batch_size"],
                 num_workers=opt["num_workers"],
                 shuffle=True,
-                persistent_workers=True,
             )
 
         val_datasets = {}
@@ -376,9 +389,8 @@ def main():
             val_loaders[key] = torch.utils.data.DataLoader(
                 val_dataset,
                 batch_size=1,
-                num_workers=opt["num_workers"],
+                num_workers=4,
                 pin_memory=True,
-                persistent_workers=True,
             )
 
         run = wandb.init(

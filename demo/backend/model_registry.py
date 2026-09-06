@@ -100,6 +100,7 @@ class _DoverBase(_BasePredictor):
                                             False, False)
         for k, v in video.items():
             v = ((v.permute(1, 2, 3, 0) - self.mean) / self.std).permute(3, 0, 1, 2)
+            v = v.unsqueeze(0)   # [C,T,H,W] -> [1,C,T,H,W]
             b, c, t, h, w = v.shape
             nc = sample_types[k]["num_clips"]
             video[k] = (v.reshape(b, c, nc, t // nc, h, w)
@@ -179,20 +180,25 @@ MODELS = [
 ]
 
 _instances = {}
+_locks = {}
 
 
 def get_model(model_id):
     """懒加载并缓存模型实例；不可用抛 KeyError。"""
-    if model_id in _instances:
-        return _instances[model_id]
-    for m in MODELS:
-        if m["id"] == model_id:
-            if not m["available"] or not m["ckpt"]:
-                raise RuntimeError(f"模型 {model_id} 权重不可用")
-            inst = m["builder"](m["ckpt"])
-            _instances[model_id] = inst
-            return inst
-    raise KeyError(f"未知模型: {model_id}")
+    if model_id not in _locks:
+        import threading
+        _locks[model_id] = threading.Lock()
+    with _locks[model_id]:
+        if model_id in _instances:
+            return _instances[model_id]
+        for m in MODELS:
+            if m["id"] == model_id:
+                if not m["available"] or not m["ckpt"]:
+                    raise RuntimeError(f"模型 {model_id} 权重不可用")
+                inst = m["builder"](m["ckpt"])
+                _instances[model_id] = inst
+                return inst
+        raise KeyError(f"未知模型: {model_id}")
 
 
 def model_info_list():
