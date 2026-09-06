@@ -4,7 +4,7 @@
 
 ## 一句话背景
 
-VQA 课程设计（第3组），答辩 2026-09-11。**(A)+(B) 主线已全部完成**：baseline（SROCC=0.6723/PLCC=0.6723）+ 半监督 v2 最终 **SROCC=0.6897/PLCC=0.6561/OBJ=1.3457**（best=轮次 2，反超 baseline，eval_val 已高精度复核）。**DOVER 复现已入库**（`dover_repro/`）：零样本 SROCC=0.7110/PLCC=0.7053（官方 0.7477/0.7546）；14 个训练集外测试视频对比：DOVER 11/11 排序全对 vs 自研 9/11（`docs/test_comparison_report.md`）。**DOVER++ 微调复现待启动**（目标 0.8071/0.8126）。**CAMP-VQA 对照实验已交接组员 Peter**。
+VQA 课程设计（第3组），答辩 2026-09-11。**(A)+(B) 主线已全部完成**：baseline（SROCC=0.6723/PLCC=0.6723）+ 半监督 v2 最终 **SROCC=0.6897/PLCC=0.6561/OBJ=1.3457**（best=轮次 2，反超 baseline，eval_val 已高精度复核）。**DOVER 复现已入库**（`dover_repro/`）：零样本 SROCC=0.7110/PLCC=0.7053（官方 0.7477/0.7546）；14 个训练集外测试视频对比：DOVER 11/11 排序全对 vs 自研 9/11（`docs/test_comparison_report.md`）。**DOVER++ 线性微调已完成**：SROCC=0.7854/PLCC=0.7905（s 分支 4 epoch，权重 LFS 已入 Vzixing）；**端到端阶段待续跑**（`resume.pth` 就绪）。完整时间线/死因/续跑方法见 `docs/doverpp_experiment_summary.md`。**CAMP-VQA 对照实验已交接组员 Peter**。
 
 ## 当前状态快照（9/5 13:00）
 
@@ -22,8 +22,7 @@ VQA 课程设计（第3组），答辩 2026-09-11。**(A)+(B) 主线已全部完
 
 ## 剩余待办（TODO.md 也有）
 
-- [ ] **推送本地提交**：`git push origin main`（含 dover_repro LFS 权重，网络恢复后执行）
-- [ ] DOVER++ 微调复现：`cd dover_repro && python training_with_divide.py -o divide_repro.yml`（10 线性 + 20 端到端，batch 8，约 4~6 小时）
+- [ ] DOVER++ e2e 续跑：`cd dover_repro && python training_with_divide.py -o divide_repro.yml --train train-dividemaxwell --val val-dividemaxwell`（config 已指向 resume.pth、l_num_epochs=0；**建议 num_epochs 砍到 2~3**——batch 4 e2e ≈ 7.6h/epoch，7 epochs 答辩前来不及；训练时关 VALORANT/demo 后端/录屏，8GB 显存 9/6 已触发 4 次 GPU 硬错误）
 - [ ] 接收 Peter 的 CAMP-VQA 结果 → README 实验表补一行 + 答辩 PPT
 - [ ] 拿到官方标注后跑 `--compare-train/--compare-test` 校验重建标注；不一致则重训
 - [ ] 测试视频到达 → `predict.py --fp16` 出 score.txt（注意 20 分钟耗时扣分）
