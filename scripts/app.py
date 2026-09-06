@@ -123,7 +123,23 @@ def apply_selection(*paths):
             + "\n".join(lines))
 
 
+# The heads and the flicker heuristic want different frames.
+#
+# The heads were trained on 4 clips of 8 frames, so they must get exactly that.
+# But 32 frames out of a 106-frame clip is 30% coverage with 25-frame gaps -
+# intermittent flicker can fall straight into a gap. And an 8-frame window at
+# 30 fps is 0.27 s, which is less than one period of a 3 Hz flicker, so the
+# detrending step inside the heuristic mistakes a partial sine for a ramp.
+#
+# The heuristic is cheap (no network, ~200 ms), so it gets its own denser
+# sampling: the whole video when it is short, a long contiguous window
+# otherwise.
+FLICKER_MAX_FRAMES = 256
+FLICKER_CLIPS, FLICKER_CLIP_LEN = 8, 32
+
+
 def read_frames(path):
+    """Frames for the regression heads: exactly the training layout."""
     from decord import VideoReader, cpu
     vr = VideoReader(path, ctx=cpu(0), width=SIZE, height=SIZE, num_threads=1)
     n_total = len(vr)
@@ -133,6 +149,24 @@ def read_frames(path):
     x = (x - torch.tensor(IMAGENET_MEAN).view(1, 3, 1, 1)) / \
         torch.tensor(IMAGENET_STD).view(1, 3, 1, 1)
     return raw, x, n_total
+
+
+def read_frames_flicker(path):
+    """Frames for the flicker heuristic: as much contiguous coverage as is
+    affordable. Returns (frames, clip_len, coverage_note)."""
+    from decord import VideoReader, cpu
+    vr = VideoReader(path, ctx=cpu(0), width=SIZE, height=SIZE, num_threads=1)
+    n = len(vr)
+    if n <= FLICKER_MAX_FRAMES:
+        idx = np.arange(n)
+        frames = vr.get_batch(idx).asnumpy()
+        return frames, n, f"all {n} frames (100% coverage)"
+    idx = clip_indices(n, FLICKER_CLIPS, FLICKER_CLIP_LEN)
+    frames = vr.get_batch(idx).asnumpy()
+    cov = FLICKER_CLIPS * FLICKER_CLIP_LEN / n * 100
+    return (frames, FLICKER_CLIP_LEN,
+            f"{FLICKER_CLIPS}x{FLICKER_CLIP_LEN} of {n} frames "
+            f"({cov:.0f}% coverage)")
 
 
 def extract(x, chunk=16):
@@ -164,7 +198,7 @@ def to_severity(pred, y_mu, y_sd):
     return float(np.clip(1.0 - (pred - lo) / (hi - lo), 0.0, 1.0))
 
 
-def make_plot(seq, raw):
+def make_plot(seq, raw, fraw=None, fclip=None):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -173,20 +207,22 @@ def make_plot(seq, raw):
     d = seq.reshape(K, L, -1)
     feat_step = np.abs(np.diff(d, axis=1)).mean(-1)                 # [K, L-1]
 
-    g = 0.299 * raw[..., 0] + 0.587 * raw[..., 1] + 0.114 * raw[..., 2]
-    luma = g.reshape(K, L, -1).mean(-1)                             # [K, L]
+    # brightness curve from the denser flicker sampling when available
+    src = fraw if fraw is not None else raw
+    g = 0.299 * src[..., 0] + 0.587 * src[..., 1] + 0.114 * src[..., 2]
+    seq_luma = g.reshape(len(src), -1).mean(-1)
 
     fig, ax = plt.subplots(1, 2, figsize=(10, 2.8), dpi=110)
     for k in range(K):
         ax[0].plot(range(1, L), feat_step[k], marker="o", ms=3, label=f"clip {k+1}")
-        ax[1].plot(range(L), luma[k] - luma[k].mean(), marker="o", ms=3)
+    ax[1].plot(seq_luma - seq_luma.mean(), lw=1)
     ax[0].set_title("Feature instability")
     ax[0].set_xlabel("frame step within clip")
     ax[0].set_ylabel("mean |change|")
     ax[0].legend(fontsize=7, ncol=2)
     ax[0].grid(alpha=.3)
-    ax[1].set_title("Frame brightness (centred) - sawtooth = flicker")
-    ax[1].set_xlabel("frame in clip")
+    ax[1].set_title("Frame brightness (centred) - oscillation = flicker")
+    ax[1].set_xlabel("sampled frame")
     ax[1].set_ylabel("luma - mean")
     ax[1].grid(alpha=.3)
     fig.tight_layout()
@@ -212,7 +248,11 @@ def analyse(video, show_frames):
         sev = to_severity(pred, e["y_mu"], e["y_sd"])
         rows.append((e["title"], e["desc"], pred, sev, level_from_score(sev)))
 
-    fl = heuristic_flicker_v2(raw, clip_len=CLIP_LEN)
+    try:
+        fraw, fclip, fnote = read_frames_flicker(video)
+    except Exception:
+        fraw, fclip, fnote = raw, CLIP_LEN, "fell back to the head sampling"
+    fl = heuristic_flicker_v2(fraw, clip_len=fclip)
     rows.append(("Brightness flicker",
                  "Periodic luminance pumping (heuristic, no weights)",
                  None, fl["score"], fl["level"]))
@@ -228,14 +268,14 @@ def analyse(video, show_frames):
            f"periodicity {fl['detail']['periodicity']:.2f} | "
            f"frame diff {fl['detail']['frame_diff_mean']:.2f}",
            "",
-           f"{n_total} frames in file | sampled {N_CLIPS}x{CLIP_LEN} "
-           f"consecutive | {dt:.2f}s",
+           f"{n_total} frames in file | heads sampled {N_CLIPS}x{CLIP_LEN} "
+           f"consecutive | flicker used {fnote} | {dt:.2f}s",
            "",
            "> Prediction is the raw axis output (higher = better). "
            "Severity is 0..1 distortion strength (higher = worse)."]
 
     gallery = [raw[i] for i in range(raw.shape[0])] if show_frames else None
-    return "\n".join(md), gallery, make_plot(seq, raw)
+    return "\n".join(md), gallery, make_plot(seq, raw, fraw, fclip)
 
 
 def batch(folder):
@@ -251,10 +291,12 @@ def batch(folder):
     for name in gr.Progress().tqdm(files):
         stem = os.path.splitext(name)[0]
         try:
-            raw, x, _ = read_frames(os.path.join(folder, name))
+            path = os.path.join(folder, name)
+            raw, x, _ = read_frames(path)
             seq = extract(x)
             vals = [head_score(e, seq) for e in STATE["heads"]]
-            fl = heuristic_flicker_v2(raw, clip_len=CLIP_LEN)["score"]
+            fraw, fclip, _ = read_frames_flicker(path)
+            fl = heuristic_flicker_v2(fraw, clip_len=fclip)["score"]
             rows.append((stem, vals, fl))
         except Exception:
             rows.append((stem, [float("nan")] * len(STATE["heads"]), float("nan")))
