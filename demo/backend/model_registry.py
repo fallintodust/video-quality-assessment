@@ -132,12 +132,18 @@ class DoverPlusPlusPredictor(_DoverBase):
 
 # ---------------------------------------------------------------- 注册表
 def _find_doverpp_ckpt():
-    """自动找 DOVER++ 微调产物（best > latest > 不存在）。"""
+    """自动找 DOVER++ 微调产物（s 分支完整模型 best > 其它 latest > 不存在）。"""
+    wdir = PROJECT_ROOT / "dover_repro" / "pretrained_weights"
     cands = [
-        PROJECT_ROOT / "dover_repro" / "pretrained_weights" / "divide_val-dividemaxwell_s_finetuned.pth",
-        PROJECT_ROOT / "dover_repro" / "pretrained_weights" / "divide_val-dividemaxwell_s_latest.pth",
+        # 线性微调 s 分支完整模型（SROCC=0.7854 / PLCC=0.7905，e2e 待续）
+        "DOVER_head_train-dividemaxwell_0_val-dividemaxwell_s_latest.pth",
+        "DOVER_head_train-dividemaxwell_0_val-dividemaxwell_n_latest.pth",
+        # 兼容旧命名
+        "divide_val-dividemaxwell_s_latest.pth",
+        "divide_val-dividemaxwell_s_finetuned.pth",
     ]
-    for c in cands:
+    for name in cands:
+        c = wdir / name
         if c.exists():
             return c
     return None
@@ -169,9 +175,9 @@ MODELS = [
     {
         "id": "doverpp",
         "name": "DOVER++（课程数据微调）",
-        "desc": ("在 DOVER 基础上用 DIVIDE-MaxWell 整体+技术+美学三列标注微调"
-                 "（PLCC+rank 损失，官方报告 SROCC=0.8071 / PLCC=0.8126）；"
-                 "本机复现权重（微调完成后自动可用）"),
+        "desc": ("DOVER 架构 + divide_head 双标注头，DIVIDE-MaxWell 全监督微调"
+                 "（4 个线性 epoch，头部微调，验证集 SROCC=0.7854 / PLCC=0.7905；"
+                 "端到端阶段待续，官方全流程报告 SROCC=0.8071 / PLCC=0.8126）"),
         "scale": "1~5（两分支和）",
         "ckpt": str(_find_doverpp_ckpt()) if _find_doverpp_ckpt() else "",
         "available": _find_doverpp_ckpt() is not None,
