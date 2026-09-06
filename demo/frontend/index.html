@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NR-VQA 视频质量评估系统（多模型）</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="app">
+        <header>
+            <div class="header-content">
+                <h1><i class="fas fa-film"></i> NR-VQA 视频质量评估</h1>
+                <p class="subtitle">无参考视频质量评估 · 多模型打分 · 时域一致性</p>
+                <div class="badges">
+                    <span class="badge"><i class="fas fa-eye"></i> 闪烁检测</span>
+                    <span class="badge"><i class="fas fa-pause"></i> 帧冻结卡顿</span>
+                    <span class="badge"><i class="fas fa-wave-square"></i> 时域噪声</span>
+                    <span class="badge"><i class="fas fa-blur"></i> 模糊检测</span>
+                </div>
+                <div id="modelStatus" class="model-status">
+                    <i class="fas fa-spinner fa-spin"></i> 加载中...
+                </div>
+            </div>
+        </header>
+
+        <main>
+            <!-- 模型选择 -->
+            <section class="models-section">
+                <div class="section-header">
+                    <h3><i class="fas fa-brain"></i> 选择打分模型</h3>
+                </div>
+                <div id="modelCards" class="model-cards">
+                    <div class="empty-hint">加载模型列表...</div>
+                </div>
+            </section>
+
+            <!-- 上传区域 -->
+            <section class="upload-section">
+                <div class="drop-zone" id="dropZone">
+                    <i class="fas fa-cloud-upload-alt fa-4x"></i>
+                    <p class="drop-text">拖拽视频到此处，或点击上传</p>
+                    <p class="drop-hint">支持 MP4, AVI, MOV, MKV 等格式</p>
+                    <input type="file" id="fileInput" accept="video/*" multiple>
+                    <button class="btn-primary" onclick="document.getElementById('fileInput').click()">
+                        <i class="fas fa-plus"></i> 选择视频
+                    </button>
+                </div>
+            </section>
+
+            <!-- 任务队列 -->
+            <section id="queueSection" style="display:none;" class="queue-section">
+                <div class="section-header">
+                    <h3><i class="fas fa-list"></i> 评估队列 (<span id="queueCount">0</span>)</h3>
+                    <div class="section-actions">
+                        <button class="btn-secondary" onclick="clearQueue()">
+                            <i class="fas fa-trash"></i> 清空
+                        </button>
+                        <button class="btn-primary" id="batchEvalBtn" onclick="evaluateAll()">
+                            <i class="fas fa-play"></i> 开始评估
+                        </button>
+                    </div>
+                </div>
+                <div id="queueList"></div>
+            </section>
+
+            <!-- 结果展示 -->
+            <section id="resultsSection" style="display:none;" class="results-section">
+                <div class="section-header">
+                    <h3><i class="fas fa-chart-bar"></i> 评估结果（含失真问题反馈）</h3>
+                    <button class="btn-secondary" onclick="clearResults()">
+                        <i class="fas fa-times"></i> 清空结果
+                    </button>
+                </div>
+                <div id="resultsGrid"></div>
+            </section>
+
+            <!-- score.txt（任务书格式） -->
+            <section class="scoretxt-section">
+                <div class="section-header">
+                    <h3><i class="fas fa-file-alt"></i> score.txt（任务书输出格式）</h3>
+                    <div class="section-actions">
+                        <select id="scoreTxtModel"></select>
+                        <button class="btn-secondary" onclick="loadScoreTxt()">
+                            <i class="fas fa-sync"></i> 刷新
+                        </button>
+                        <button class="btn-primary" onclick="downloadScoreTxt()">
+                            <i class="fas fa-download"></i> 下载 score.txt
+                        </button>
+                        <button class="btn-secondary" onclick="resetScore()">
+                            <i class="fas fa-eraser"></i> 清空记录
+                        </button>
+                    </div>
+                </div>
+                <pre id="scoreTxtContent" class="scoretxt-pre">（评估后此处显示任务书格式的 score.txt 内容）</pre>
+            </section>
+
+            <!-- 模型信息 -->
+            <section class="info-section">
+                <details>
+                    <summary><i class="fas fa-info-circle"></i> 三个模型的区别说明</summary>
+                    <div class="info-content" id="modelInfoDetail"></div>
+                </details>
+            </section>
+        </main>
+
+        <footer>
+            <p>课程设计项目 · 基于深度学习的无参考视频质量评估（第3组）</p>
+        </footer>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

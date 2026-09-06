@@ -173,3 +173,53 @@ def heuristic_flicker(frames_rgb):
 
 # 参考实现默认注册，保证脚本开箱可跑；组员实现后替换即可。
 register_detector("闪烁", heuristic_flicker)
+
+
+def heuristic_blur(frames_rgb):
+    """模糊检测·内置参考实现（组员3可整体替换）。
+
+    原理：Laplacian 方差是经典清晰度度量——清晰帧边缘强、方差大；
+    模糊帧方差显著下降。取 T 帧方差均值映射到 0~1。
+    """
+    import cv2
+
+    gray = frames_rgb.astype(np.float32).mean(axis=3)
+    vars_ = []
+    for f in gray:
+        lap = cv2.Laplacian(f.astype(np.uint8), cv2.CV_64F)
+        vars_.append(float(lap.var()))
+    var_mean = float(np.mean(vars_))
+    # 经验标定：var ~150 为清晰，<40 明显模糊（合成数据可调）
+    score = float(np.clip(1.0 - var_mean / 150.0, 0.0, 1.0))
+    return {"score": score, "level": level_from_score(score),
+            "detail": {"laplacian_var_mean": var_mean,
+                       "laplacian_var_min": float(np.min(vars_))}}
+
+
+def heuristic_noise(frames_rgb):
+    """噪点检测·内置参考实现（组员1可整体替换）。
+
+    原理：噪声方差估计——帧与 3x3 中值滤波（平滑后）残差的标准差
+    近似传感器/时域噪声强度，多帧平均后映射到 0~1。
+    """
+    import cv2
+
+    gray = frames_rgb.astype(np.float32).mean(axis=3)  # [T,H,W] 0~255
+    sigmas = []
+    for f in gray:
+        smooth = cv2.medianBlur(f.astype(np.uint8), 3).astype(np.float32)
+        sigmas.append(float((f - smooth).std()))
+    sigma = float(np.mean(sigmas))
+    # 经验标定：残差 std ~12（即强度 σ≈12/255）视为重噪（合成数据可调）
+    score = float(np.clip(sigma / 12.0, 0.0, 1.0))
+    return {"score": score, "level": level_from_score(score),
+            "detail": {"noise_sigma_mean": sigma,
+                       "noise_sigma_max": float(np.max(sigmas))}}
+
+
+# 槽位默认填入内置参考实现（组员实现正式版后直接覆盖对应槽位并重新注册即可）
+NOISE_DETECTOR = heuristic_noise
+FLICKER_DETECTOR = heuristic_flicker
+BLUR_DETECTOR = heuristic_blur
+register_detector("噪点", heuristic_noise)
+register_detector("模糊", heuristic_blur)

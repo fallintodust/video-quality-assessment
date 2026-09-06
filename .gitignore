@@ -25,3 +25,6 @@ __pycache__/
 .idea/
 .vscode/
 .claude/
+.dl_test/
+demo/uvicorn.log
+demo/kill_uvicorn.ps1
