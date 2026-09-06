@@ -389,7 +389,7 @@ def main():
             val_loaders[key] = torch.utils.data.DataLoader(
                 val_dataset,
                 batch_size=1,
-                num_workers=4,
+                num_workers=2,
                 pin_memory=True,
             )
 
