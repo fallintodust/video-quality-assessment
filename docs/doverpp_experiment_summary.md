@@ -53,17 +53,17 @@ epoch 3 s 分支完整指标：SROCC=0.7854 / PLCC=0.7905 / KROCC=0.5915 / RMSE=
 | 官方 DOVER++ 报告（全流程） | 0.8071 | 0.8126 |
 | 自研模型（半监督 v2 最优） | 0.6897 | 0.6561 |
 
-## 五、端到端阶段（未完成 ⏳）
+## 五、端到端阶段（⛔ 终止于 2026-09-07 03:35）
 
-- 第 7 次进入 e2e 后（57/909）GPU 硬错误中断；第 8 次从 `resume.pth` 续跑至 108/909 后主动停止。
+- 第 7 次进入 e2e 后（57/909）GPU 硬错误中断；第 8 次续跑至 108/909 主动停止；**第 9 次（9/7 00:45 启动，num_epochs=3/warmup=1.0）跑到 e2e epoch 0 的 220/909（24%，速度稳定 36s/it；中途被失落城堡2 拖慢 ~1.5 小时后完全恢复）后由组长决定终止**——线性结果已足够答辩使用，e2e 不再追。
 - **续跑方法**：
   ```
   cd dover_repro
   python training_with_divide.py -o divide_repro.yml --train train-dividemaxwell --val val-dividemaxwell
   ```
-  当前 `divide_repro.yml` 已配好：`test_load_path: ./pretrained_weights/resume.pth`、`l_num_epochs: 0`（跳过线性）、`num_epochs: 7`、batch 4、workers 2。
-- **速度与时长**：e2e batch 4 ≈ 30s/it × 909 batch ≈ 7.6h/epoch。**7 epochs ≈ 53h，9/11 答辩前来不及，建议 `num_epochs` 砍到 2~3**（每 epoch 结束自动验证+保存，随时可取 best）。
-- 线性阶段已收敛的头部权重保留在 `resume.pth` 中，e2e 只需微调全参数，2~3 个 epoch 预期即可超越线性结果。
+  当前 `divide_repro.yml` 已配好：`test_load_path: ./pretrained_weights/resume.pth`、`l_num_epochs: 0`（跳过线性）、`num_epochs: 3`、`warmup_epochs: 1.0`、batch 4、workers 2。
+- **速度与时长**：e2e batch 4 ≈ 34~36s/it × 909 batch ≈ 8.6h/epoch；3 epochs ≈ 26h。
+- 线性阶段已收敛的头部权重保留在 `resume.pth` 中；**UI 已接入微调权重**（demo 后端 doverpp 模型可选，提交 824972f）。
 
 ## 六、GPU 硬错误记录（重要环境风险）
 
@@ -81,10 +81,10 @@ epoch 3 s 分支完整指标：SROCC=0.7854 / PLCC=0.7905 / KROCC=0.5915 / RMSE=
 
 ## 七、剩余任务
 
-- [ ] **DOVER++ e2e 续跑**（`resume.pth` 就绪，建议 num_epochs 2~3，预计 15~23h，9/8 前启动）
-- [ ] e2e 完成后：结果写入 README 实验记录表 + 测试集对比表补 DOVER++ 列
+- [x] **DOVER++ e2e 续跑**——组长 9/7 决定终止（epoch 0 220/909），线性成果为交付状态；`resume.pth` 保留，随时可续
+- [ ] README 实验记录表补 DOVER++ 行（线性 SROCC=0.7854/PLCC=0.7905，UI 已接入）+ 测试集对比表补 DOVER++ 列
 - [ ] 噪点（组员1）、模糊（组员3）正式实现**至今未提交**（截至 9/6 19:00 无分支/PR，仅有组长参考实现）——需催
-- [ ] CAMP-VQA 结果等 Peter 回报后补 README
+- [ ] CAMP-VQA 对照实验已取消（本机 8GB 单视频 ~15min 全量 226h 不可行；环境与权重已删，交接文档留存）
 - [ ] 官方标注校验、测试视频 score.txt、答辩 PPT、实践报告
 
 ## 八、产物清单
