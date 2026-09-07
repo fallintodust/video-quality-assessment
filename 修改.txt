@@ -1,0 +1,6 @@
+模糊检测模块 (核心任务)
+   - 文件：`vqa/diagnosis.py`
+   - 新增 `blur_detector` 函数，基于拉普拉斯方差 (Laplacian Variance) 检测视频模糊程度。
+   - 将 `BLUR_DETECTOR` 注册至系统，实现 `diagnose.py` 的统一调用。
+   - 输出格式：`{"score": 0~1, "level": "无/轻/中/重", "detail": {...}}`。
+输出保存在runs/diagnose文件夹下
