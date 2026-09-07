@@ -2,8 +2,11 @@
 """NR-VQA 演示后端：多模型选择打分 + 失真问题反馈 + 任务书格式 score.txt。"""
 import os
 import sys
+import shutil
 import tempfile
 import threading
+import time
+import uuid
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -39,6 +42,53 @@ if frontend_dir.exists():
 _lock = threading.Lock()
 _score_history = []   # [(video_name, model_id, score), ...]
 
+# ---- 视频暂存区（重新打分用）：上传打分成功后保留一份副本，返回 video_id ----
+VIDEO_TTL_SECONDS = 30 * 60    # 无使用自动过期时间
+VIDEO_STORE_MAX = 60           # 最多保留条数，超出逐出最旧
+VIDEO_STORE_GRACE = 60         # 逐出时对 60 秒内新建条目让路（可能正在推理）
+_video_dir = Path(tempfile.gettempdir()) / "nr_vqa_rescore"
+_video_store = {}              # video_id -> {"path","name","expires","created"}
+
+
+def _purge_expired_videos():
+    """清理过期条目并删除文件（须持有 _lock）。"""
+    now = time.time()
+    expired = [vid for vid, info in _video_store.items() if info["expires"] <= now]
+    for vid in expired:
+        info = _video_store.pop(vid, None)
+        if info and os.path.exists(info["path"]):
+            os.unlink(info["path"])
+
+
+def _retain_video(tmp_path: str, name: str) -> str:
+    """打分成功后把临时视频移入暂存目录；返回 video_id，失败返回 ''（不影响打分）。"""
+    try:
+        _video_dir.mkdir(parents=True, exist_ok=True)
+        with _lock:
+            _purge_expired_videos()
+            now = time.time()
+            # 超出上限时逐出最旧条目（给新暂存让出空间，跳过宽限期内的）
+            for vid, info in sorted(_video_store.items(),
+                                    key=lambda kv: kv[1]["created"]):
+                if len(_video_store) < VIDEO_STORE_MAX:
+                    break
+                if info["created"] > now - VIDEO_STORE_GRACE:
+                    break
+                _video_store.pop(vid, None)
+                if os.path.exists(info["path"]):
+                    os.unlink(info["path"])
+            vid = uuid.uuid4().hex[:12]
+            dest = _video_dir / f"{vid}{Path(tmp_path).suffix}"
+            shutil.move(tmp_path, dest)
+            _video_store[vid] = {
+                "path": str(dest), "name": name,
+                "expires": time.time() + VIDEO_TTL_SECONDS,
+                "created": time.time(),
+            }
+        return vid
+    except Exception:
+        return ""
+
 
 @app.get("/")
 async def serve_index():
@@ -71,17 +121,18 @@ def _save_tmp(file: UploadFile) -> str:
     return tmp.name
 
 
-@app.post("/api/predict")
-def predict_video(model_id: str, file: UploadFile = File(...)):
-    """指定模型打分 + 失真问题反馈（同步 def → FastAPI 线程池，不阻塞事件循环）。"""
-    tmp_path = _save_tmp(file)
+def _predict_with_errors(model_id: str, video_path: str, video_name: str) -> dict:
+    """打分 + 失真问题反馈 + 记录 history，返回统一响应体；模型/推理错误转 HTTPException。
+
+    与 /api/predict、/api/predict/{video_id} 共用，保证两个入口响应结构一致。
+    """
     try:
         predictor = model_registry.get_model(model_id)
-        score = predictor.predict(tmp_path)
+        score = predictor.predict(video_path)
 
         # 失真问题反馈（闪烁/噪点/模糊，vqa.diagnosis 已注册的检测器）
         from vqa.diagnosis import diagnose_video
-        diag = diagnose_video(tmp_path, model=None)
+        diag = diagnose_video(video_path, model=None)
 
         with _lock:
             n = len(_score_history) + 1
@@ -89,7 +140,7 @@ def predict_video(model_id: str, file: UploadFile = File(...)):
 
         return {
             "status": "success",
-            "video_name": file.filename,
+            "video_name": video_name,
             "score": round(score, 4),
             "model_id": model_id,
             "model_name": next(m["name"] for m in model_registry.MODELS
@@ -99,17 +150,42 @@ def predict_video(model_id: str, file: UploadFile = File(...)):
             "score_txt_line": f"video{n}: {round(score, 2)}",
             "issues": diag["issues"],
         }
-    except HTTPException:
-        raise
     except KeyError as e:
         raise HTTPException(404, detail=f"模型不存在: {model_id}")
     except RuntimeError as e:
         raise HTTPException(503, detail=str(e))
     except Exception as e:
         raise HTTPException(500, detail=f"推理失败: {e}")
+
+
+@app.post("/api/predict")
+def predict_video(model_id: str, file: UploadFile = File(...)):
+    """指定模型打分 + 失真问题反馈（同步 def → FastAPI 线程池，不阻塞事件循环）。
+
+    打分成功后把视频暂存到服务端并返回 video_id，前端“重新打分”可免重传复用。
+    """
+    tmp_path = _save_tmp(file)
+    try:
+        result = _predict_with_errors(model_id, tmp_path, file.filename)
+        result["video_id"] = _retain_video(tmp_path, file.filename)
     finally:
+        # _retain_video 成功后已把文件移走；失败/异常时删除残留临时文件
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
+    return result
+
+
+@app.post("/api/predict/{video_id}")
+def rescore_video(video_id: str, model_id: str):
+    """重新打分：复用服务端暂存视频，无需重新上传（响应字段与 /api/predict 一致）。"""
+    with _lock:
+        info = _video_store.get(video_id)
+        if info is None:
+            raise HTTPException(404, detail="暂存视频不存在或已过期，请重新上传后再打分")
+        info["expires"] = time.time() + VIDEO_TTL_SECONDS   # 使用中顺延过期时间
+    result = _predict_with_errors(model_id, info["path"], info["name"])
+    result["video_id"] = video_id
+    return result
 
 
 @app.get("/api/score/txt")

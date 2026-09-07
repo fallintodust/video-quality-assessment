@@ -621,3 +621,38 @@ footer {
 .model-info-item { margin-bottom: 14px; }
 .model-info-item h4 { color: #4299e1; margin-bottom: 4px; }
 .model-info-item p { color: #a0aec0; font-size: .85rem; line-height: 1.6; margin: 0; }
+
+/* ===== 重新打分（结果卡片操作区） ===== */
+.card-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px dashed #e2e8f0;
+}
+.btn-rescore {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    font-size: .8rem;
+    font-weight: 600;
+    color: #667eea;
+    background: #ebf0ff;
+    border: 1px solid #667eea;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all .2s;
+}
+.btn-rescore:hover {
+    background: #667eea;
+    color: #fff;
+    transform: translateY(-1px);
+    box-shadow: 0 3px 8px rgba(102, 126, 234, 0.3);
+}
+.btn-rescore:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
