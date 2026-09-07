@@ -245,3 +245,93 @@ def model_flicker_detector(frames_rgb):
 
 FLICKER_DETECTOR = model_flicker_detector
 register_detector("闪烁", FLICKER_DETECTOR)
+
+# ============================================================================
+# 模糊检测：基于拉普拉斯方差（组员3 / 方博文）
+#
+# 原理：清晰图像边缘锐利，拉普拉斯响应方差大；
+#       模糊图像边缘平滑，拉普拉斯响应方差小。
+# 参考阈值基于 224x224 图像标定，可随数据集调整。
+# ============================================================================
+
+import cv2
+
+# 阈值配置（可根据实际数据调整）
+_BLUR_THRESHOLDS = {
+    "heavy": 30,      # < 30: 严重模糊
+    "medium": 80,     # 30-80: 中等模糊
+    "light": 150,     # 80-150: 轻微模糊
+    "clear": 150      # > 150: 清晰
+}
+
+
+def blur_detector(frames_rgb):
+    """模糊检测（拉普拉斯方差法）
+
+    Args:
+        frames_rgb: np.ndarray [T, H, W, 3] uint8 RGB
+
+    Returns:
+        dict: {
+            "score": float,   # 0.0=清晰, 1.0=最模糊
+            "level": str,     # "无" | "轻" | "中" | "重"
+            "detail": dict    # 详细数据
+        }
+    """
+    # 确保是 [T, H, W, 3] 格式
+    if len(frames_rgb.shape) == 3:
+        frames = [frames_rgb]
+    else:
+        frames = frames_rgb
+
+    blur_scores = []
+    for frame in frames:
+        # 转灰度
+        gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+        # 拉普拉斯算子
+        laplacian = cv2.Laplacian(gray, cv2.CV_64F)
+        # 方差（值越大越清晰）
+        variance = laplacian.var()
+        blur_scores.append(variance)
+
+    # 统计
+    mean_var = np.mean(blur_scores)
+    std_var = np.std(blur_scores)
+    min_var = np.min(blur_scores)
+    max_var = np.max(blur_scores)
+
+    # 归一化到 0~1（使用指数衰减映射，更符合感知）
+    # 当 variance = 0 时 score = 1（完全模糊）
+    # 当 variance = 500 时 score ≈ 0（清晰）
+    # 调整 K 值可控制敏感度
+    K = 300
+    normalized_score = float(np.exp(-mean_var / K))
+    # 确保在 [0, 1] 范围内
+    normalized_score = max(0.0, min(1.0, normalized_score))
+
+    # 分级
+    if mean_var > _BLUR_THRESHOLDS["light"]:
+        level = "无"
+    elif mean_var > _BLUR_THRESHOLDS["medium"]:
+        level = "轻"
+    elif mean_var > _BLUR_THRESHOLDS["heavy"]:
+        level = "中"
+    else:
+        level = "重"
+
+    return {
+        "score": normalized_score,
+        "level": level,
+        "detail": {
+            "laplacian_var_mean": float(mean_var),
+            "laplacian_var_std": float(std_var),
+            "laplacian_var_min": float(min_var),
+            "laplacian_var_max": float(max_var),
+            "per_frame": [float(s) for s in blur_scores]
+        }
+    }
+
+
+# 注册模糊检测器
+BLUR_DETECTOR = blur_detector
+register_detector("模糊", BLUR_DETECTOR)
