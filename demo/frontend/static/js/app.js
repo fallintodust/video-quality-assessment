@@ -3,6 +3,10 @@ const API_BASE = '';
 let uploadQueue = [];
 let isEvaluating = false;
 let models = [];
+let multiAxes = [];               // /api/diagnose/axes 的维度与权重变体
+let axisVariants = {};            // {轴 id: 权重文件名}，多维诊断的逐轴选择
+let extraDetectors = [];          // 可选的组员检测器名称（噪点 / 模糊）
+let extraSelected = {};           // {名称: 是否勾选}
 let selectedModel = null;
 
 // ---- 重新打分：优先复用服务端暂存 video_id（免重传）；暂存失效时回退重传内存中的原文件 ----
@@ -42,6 +46,7 @@ async function loadModels() {
         models = data.models;
         renderModelCards();
         renderScoreTxtSelect();
+        loadAxes();
         renderModelInfo();
         if (models.length) selectModel(models.find(m => m.available) || models[0]);
     } catch (e) {
@@ -50,6 +55,85 @@ async function loadModels() {
         document.getElementById('modelStatus').innerHTML =
             '<i class="fas fa-times-circle" style="color:#fc8181;"></i> 服务连接失败';
     }
+}
+
+async function loadAxes() {
+    try {
+        const r = await fetch('/api/diagnose/axes');
+        const d = await r.json();
+        multiAxes = d.axes || [];
+        extraDetectors = d.extras || [];
+        extraDetectors.forEach(n => {
+            if (!(n in extraSelected)) extraSelected[n] = true;
+        });
+    } catch (e) { multiAxes = []; }
+    renderModelCards();
+}
+
+function variantPanelHtml() {
+    // 仅在选中多维诊断时出现。左侧是四个测量轴，右侧是该轴已训练的权重变体，
+    // 用单选圆点切换——即报告里那组分支 / 时间聚合消融。
+    if (!selectedModel || !selectedModel.multiaxis) return '';
+    const axes = multiAxes.filter(a => a.available);
+    if (!axes.length) return '';
+    axes.forEach(a => { if (!axisVariants[a.id]) axisVariants[a.id] = a.default; });
+    return `
+        <div class="variant-panel">
+            <div class="variant-panel-head">
+                <i class="fas fa-sliders-h"></i>
+                <span>各维度权重（分支 / 时间聚合消融）</span>
+            </div>
+            ${axes.map(a => `
+                <div class="axis-row">
+                    <div class="axis-info">
+                        <div class="axis-name">${a.name}</div>
+                        <div class="axis-dir">runs/${a.dir}/ · 量纲 ${a.scale}</div>
+                    </div>
+                    <div class="axis-opts n${a.variants.length}">
+                        ${a.variants.map(v => `
+                            <label class="variant-item ${v.file === axisVariants[a.id] ? 'selected' : ''}">
+                                <input type="radio" name="ax_${a.id}" value="${v.file}"
+                                       ${v.file === axisVariants[a.id] ? 'checked' : ''}
+                                       onchange="selectAxisVariant('${a.id}','${v.file}')">
+                                <span class="variant-label">${v.label}</span>
+                            </label>
+                        `).join('')}
+                    </div>
+                </div>
+            `).join('')}
+            ${extrasHtml()}
+            <div class="variant-hint">闪烁维度用启发式检测，无权重可选</div>
+        </div>`;
+}
+
+function extrasHtml() {
+    // 组员实现的检测器（噪点 / 模糊）：勾选后与四项测量一并输出
+    if (!extraDetectors.length) return '';
+    return `<div class="axis-row extras-row">
+        <div class="axis-info">
+            <div class="axis-name">附加检测</div>
+            <div class="axis-dir">vqa.diagnosis</div>
+        </div>
+        <div class="axis-opts n2">
+            ${extraDetectors.map(n => `
+                <label class="variant-item ${extraSelected[n] ? 'selected' : ''}">
+                    <input type="checkbox" ${extraSelected[n] ? 'checked' : ''}
+                           onchange="toggleExtra('${n}', this.checked)">
+                    <span class="variant-label">${n}</span>
+                </label>
+            `).join('')}
+        </div>
+    </div>`;
+}
+
+function toggleExtra(name, on) {
+    extraSelected[name] = on;
+    renderModelCards();
+}
+
+function selectAxisVariant(axisId, file) {
+    axisVariants[axisId] = file;
+    renderModelCards();
 }
 
 function renderModelCards() {
@@ -69,7 +153,7 @@ function renderModelCards() {
                 ${!m.available ? '<span class="model-card-wait">权重待训练完成</span>' : ''}
             </div>
         </div>
-    `).join('');
+    `).join('') + variantPanelHtml();
 }
 
 function selectModelById(id) {
@@ -130,15 +214,59 @@ function setupFileInput() {
     });
 }
 
+// ============ 视频预览 ============
+let _previewUrl = null;
+
+function showPreview(file) {
+    if (!file) return;
+    const pane = document.getElementById('previewPane');
+    const video = document.getElementById('previewVideo');
+    const layout = document.getElementById('uploadLayout');
+    if (!pane || !video || !layout) return;
+
+    const oldUrl = _previewUrl;
+    _previewUrl = URL.createObjectURL(file);
+    video.src = _previewUrl;
+    video.load();                       // 不调 load() 时换源后偶尔不响应播放
+    // 新源已经设好再释放旧的，避免播放中的 blob 被提前回收
+    if (oldUrl) setTimeout(() => URL.revokeObjectURL(oldUrl), 0);
+
+    document.getElementById('previewName').textContent = file.name;
+    const meta = document.getElementById('previewMeta');
+    const mb = (file.size / 1024 / 1024).toFixed(1);
+    meta.textContent = `${mb} MB`;
+    video.onloadedmetadata = () => {
+        meta.textContent = `${video.videoWidth}x${video.videoHeight} · `
+            + `${video.duration.toFixed(1)} s · ${mb} MB`;
+    };
+    layout.classList.add('has-preview');
+}
+
+function clearPreview() {
+    const layout = document.getElementById('uploadLayout');
+    const video = document.getElementById('previewVideo');
+    if (_previewUrl) { URL.revokeObjectURL(_previewUrl); _previewUrl = null; }
+    if (video) { video.pause(); video.removeAttribute('src'); video.load(); }
+    if (layout) layout.classList.remove('has-preview');
+}
+
 function handleFiles(files) {
     const videoFiles = Array.from(files).filter(f => f.type.startsWith('video/'));
     if (!videoFiles.length) { alert('请上传视频文件'); return; }
     uploadQueue = [...uploadQueue, ...videoFiles];
     updateQueueUI();
+    syncPreview();          // 队列变化后刷新左侧预览
     document.getElementById('queueSection').style.display = 'block';
 }
 
 // ============ 队列管理 ============
+function syncPreview(hideIfEmpty) {
+    // 预览跟随队列第一个视频。评估结束后队列会被清空，但预览要留着，
+    // 方便对照结果反复播放——只有手动清空或关闭时才收起。
+    if (uploadQueue.length) showPreview(uploadQueue[0]);
+    else if (hideIfEmpty) clearPreview();
+}
+
 function updateQueueUI() {
     const list = document.getElementById('queueList');
     document.getElementById('queueCount').textContent = uploadQueue.length;
@@ -163,6 +291,7 @@ function updateQueueUI() {
 function removeFromQueue(index) {
     uploadQueue.splice(index, 1);
     updateQueueUI();
+    syncPreview(true);      // 手动移除：队列空了就收起
     if (!uploadQueue.length) document.getElementById('queueSection').style.display = 'none';
 }
 
@@ -171,6 +300,7 @@ function clearQueue() {
         uploadQueue = [];
         updateQueueUI();
         document.getElementById('queueSection').style.display = 'none';
+        syncPreview(true);   // 手动清空：连同预览一起收起
     }
 }
 
@@ -185,21 +315,31 @@ async function evaluateAll() {
     btn.disabled = true;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 评估中...';
 
+    // 结果不再清空：同一个视频换模型评估会追加一张新卡片，方便横向对比
     const grid = document.getElementById('resultsGrid');
-    grid.innerHTML = '';
-    _cardFiles = {};   // 旧卡片即将被清空，释放其视频引用
+    grid.classList.add('results-strip');   // 横向滚动条，卡片左右排列
+    const base = grid.querySelectorAll('.result-card').length;
     document.getElementById('resultsSection').style.display = 'block';
 
     for (let i = 0; i < uploadQueue.length; i++) {
         const file = uploadQueue[i];
-        const card = createResultCard(file, i);
+        const card = createResultCard(file, base + i);
         grid.appendChild(card);
 
         try {
             const formData = new FormData();
             formData.append('file', file);
-            const r = await fetch(`/api/predict?model_id=${selectedModel.id}`,
-                { method: 'POST', body: formData });
+            // 多维诊断走 /api/diagnose，一次特征提取返回四项测量 + 闪烁 + 可视化
+            let url;
+            if (selectedModel.multiaxis) {
+                const ex = extraDetectors.filter(n => extraSelected[n]);
+                url = '/api/diagnose?with_visuals=true&variants='
+                    + encodeURIComponent(JSON.stringify(axisVariants));
+                if (ex.length) url += '&extras=' + encodeURIComponent(ex.join(','));
+            } else {
+                url = `/api/predict?model_id=${selectedModel.id}`;
+            }
+            const r = await fetch(url, { method: 'POST', body: formData });
             const data = await r.json();
             updateResultCard(card, data);
         } catch (error) {
@@ -214,44 +354,162 @@ async function evaluateAll() {
     updateQueueUI();
     document.getElementById('queueSection').style.display = 'none';
     loadScoreTxt();
+    syncPreview();
 }
 
 function createResultCard(file, index) {
     const card = document.createElement('div');
     card.className = 'result-card processing';
+    // Gradio 风格的加载占位：骨架块 + 轮换提示语，而不是单一进度条
+    const hints = selectedModel && selectedModel.multiaxis
+        ? ['正在解码抽帧...', '提取骨干特征...', '四个回归头打分...', '检测亮度闪烁...']
+        : ['正在解码抽帧...', '模型推理中...'];
     card.innerHTML = `
         <div class="result-header">
             <div class="result-title">
                 <span class="result-number">#${index + 1}</span>
                 <span class="result-name">${file.name}</span>
             </div>
-            <span class="result-status"><i class="fas fa-spinner fa-spin"></i> 处理中...</span>
+            <span class="result-status loading-hint"><i class="fas fa-spinner fa-spin"></i> <span class="hint-text">${hints[0]}</span></span>
         </div>
-        <div class="result-body"><div class="progress-bar"><div class="progress-fill"></div></div></div>
+        <div class="result-body">
+            <div class="skeleton-wrap">
+                <div class="skeleton skeleton-line w70"></div>
+                <div class="skeleton skeleton-line w45"></div>
+                <div class="skeleton skeleton-block"></div>
+            </div>
+        </div>
     `;
+    // 轮换提示语，让长耗时的多维诊断看起来有进展
+    let hi = 0;
+    card._hintTimer = setInterval(() => {
+        hi = (hi + 1) % hints.length;
+        const el = card.querySelector('.hint-text');
+        if (el) el.textContent = hints[hi]; else clearInterval(card._hintTimer);
+    }, 1200);
     card.dataset.cardId = _keepFile(file);  // 保留视频文件供“重新打分”复用
     return card;
 }
 
+// 失真等级配色，失真反馈与多维测量共用
+const LEVEL_COLOR = { '无': '#48bb78', '轻': '#ecc94b', '中': '#ed8936',
+                      '重': '#fc8181', '未知': '#a0aec0' };
+
 function issuesHtml(issues) {
     if (!issues || !Object.keys(issues).length) return '';
-    const names = ['闪烁', '噪点', '模糊'];
-    const levelColor = { '无': '#48bb78', '轻': '#ecc94b', '中': '#ed8936', '重': '#fc8181', '未知': '#a0aec0' };
-    return `<div class="issues-box">
-        <div class="issues-title"><i class="fas fa-bug"></i> 失真问题反馈</div>
-        <div class="issues-grid">
-            ${Object.entries(issues).map(([name, it]) => `
-                <div class="issue-chip" style="border-color:${levelColor[it.level] || '#a0aec0'};">
-                    <span class="issue-name">${name}</span>
-                    <span class="issue-level" style="color:${levelColor[it.level] || '#a0aec0'};">${it.level}</span>
-                    <span class="issue-score">强度 ${it.score.toFixed(2)}</span>
-                </div>
-            `).join('')}
-        </div>
+    // 与多维测量同一张表的样式：一行一项，右侧一条强度条，
+    // 这样不同模型的失真反馈可以横向直接对比
+    const rows = Object.entries(issues).map(([name, it]) => {
+        const c = LEVEL_COLOR[it.level] || '#a0aec0';
+        return `<tr>
+            <td class="mx-name">${name}</td>
+            <td class="mx-level" style="color:${c};">${it.level}
+                <span class="mx-sev">(${it.score.toFixed(2)})</span></td>
+            <td class="mx-bar"><span style="width:${(it.score*100).toFixed(0)}%;background:${c};"></span></td>
+        </tr>`;
+    }).join('');
+    return `<div class="mx-box">
+        <div class="mx-title"><i class="fas fa-bug"></i> 失真问题反馈</div>
+        <table class="mx-table">
+            <thead><tr><th>失真类型</th><th>程度</th><th></th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>
     </div>`;
 }
 
+// ============ 多维诊断渲染 ============
+function measurementsHtml(ms) {
+    if (!ms) return '';
+    const order = ['overall', 'shake', 'stutter', 'temporal', 'flicker'];
+    const rows = order.filter(k => ms[k]).map(k => {
+        const m = ms[k];
+        const c = LEVEL_COLOR[m.level] || '#a0aec0';
+        const pred = (m.prediction === null || m.prediction === undefined)
+            ? '-' : m.prediction.toFixed(2);
+        return `<tr>
+            <td class="mx-name">${m.name}</td>
+            <td class="mx-pred">${pred}</td>
+            <td class="mx-level" style="color:${c};">${m.level}
+                <span class="mx-sev">(${m.severity.toFixed(2)})</span></td>
+            <td class="mx-bar"><span style="width:${(m.severity*100).toFixed(0)}%;background:${c};"></span></td>
+            <td class="mx-desc">${m.desc}</td>
+        </tr>`;
+    }).join('');
+    const fl = ms.flicker;
+    const detail = (fl && fl.detail) ? `<div class="mx-detail">
+        闪烁细节：亮度波动 ${fl.detail.luma_pump} ｜ 周期性 ${fl.detail.periodicity}
+        ｜ 帧差 ${fl.detail.frame_diff_mean} ｜ ${fl.sampling || ''}</div>` : '';
+    return `<div class="mx-box">
+        <div class="mx-title"><i class="fas fa-sliders-h"></i> 多维测量</div>
+        <table class="mx-table">
+            <thead><tr><th>维度</th><th>预测值</th><th>程度</th><th></th><th>说明</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>${detail}
+        <div class="mx-note">预测值为该轴原始输出（越高越好）；程度为 0~1 失真严重度（越高越差）</div>
+    </div>`;
+}
+
+// 折叠块：默认收起，点击标题展开——抽取的帧与图占位较大
+function collapsibleHtml(icon, title, bodyHtml, openByDefault) {
+    if (!bodyHtml) return '';
+    const open = openByDefault ? ' open' : '';
+    return `<div class="mx-box mx-collapse${open}">
+        <div class="mx-title mx-toggle" onclick="toggleBox(this)">
+            <i class="fas ${icon}"></i> ${title}
+            <i class="fas fa-chevron-down mx-chevron"></i>
+        </div>
+        <div class="mx-collapse-body">${bodyHtml}</div>
+    </div>`;
+}
+
+function toggleBox(el) {
+    el.parentElement.classList.toggle('open');
+}
+
+function framesHtml(frames) {
+    if (!frames || !frames.length) return '';
+    const body = `<div class="mx-frames">
+        ${frames.map((f, i) => `<img src="data:image/jpeg;base64,${f}" title="frame ${i+1}">`).join('')}
+    </div>`;
+    return collapsibleHtml('fa-images', `抽取的帧（${frames.length}）`, body, false);
+}
+
+function plotsHtml(plots) {
+    if (!plots) return '';
+    const body = `<div class="mx-plots">
+        ${plots.instability ? `<img src="data:image/png;base64,${plots.instability}">` : ''}
+        ${plots.luma ? `<img src="data:image/png;base64,${plots.luma}">` : ''}
+    </div>`;
+    return collapsibleHtml('fa-chart-line', '时域信号', body, false);
+}
+
+// 换抖动权重重新诊断：复用服务端暂存视频
+async function rediagnose(cardId, variant) {
+    const card = document.querySelector(`[data-card-id="${cardId}"]`);
+    if (!card || !card._videoId) { alert('视频已过期，请重新上传'); return; }
+    if (card._busy) return;
+    card._busy = true;
+    const status = card.querySelector('.result-status');
+    const old = status.innerHTML;
+    status.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 重新诊断...';
+    try {
+        const ex = extraDetectors.filter(n => extraSelected[n]);
+        let u = `/api/diagnose/${card._videoId}?with_visuals=true&variants=`
+            + encodeURIComponent(JSON.stringify(axisVariants));
+        if (ex.length) u += '&extras=' + encodeURIComponent(ex.join(','));
+        const r = await fetch(u, { method: 'POST' });
+        const data = await r.json();
+        card._busy = false;
+        updateResultCard(card, data);
+    } catch (e) {
+        card._busy = false;
+        status.innerHTML = old;
+        alert('重新诊断失败：' + e.message);
+    }
+}
+
 function updateResultCard(card, data, error) {
+    if (card._hintTimer) { clearInterval(card._hintTimer); card._hintTimer = null; }
     card.className = 'result-card';
     const cardId = card.dataset.cardId || '';
     const actionsHtml = _rescoreActionsHtml(cardId);
@@ -261,6 +519,28 @@ function updateResultCard(card, data, error) {
             '<span class="badge-error"><i class="fas fa-times"></i> 失败</span>';
         card.querySelector('.result-body').innerHTML =
             `<div class="error-msg">${error}</div>${actionsHtml}`;
+        return;
+    }
+    if (data.status === 'success' && data.measurements) {
+        // 多维诊断结果
+        card.classList.add('completed');
+        if (data.video_id) card._videoId = data.video_id;
+        const ov = data.measurements.overall;
+        card.querySelector('.result-status').innerHTML = ov
+            ? `<span class="mos-score">${ov.prediction.toFixed(2)}</span>`
+            : '<span class="mos-score">-</span>';
+        card.querySelector('.result-body').innerHTML = `
+            <div class="score-detail">
+                <div class="score-meta">
+                    <span><i class="fas fa-film"></i> ${data.num_frames} 帧</span>
+                    <span><i class="fas fa-crop"></i> 采样 ${data.sampling}</span>
+                    ${data.score_txt_line ? `<span><i class="fas fa-file-alt"></i> score.txt 行：${data.score_txt_line}</span>` : ''}
+                </div>
+                ${measurementsHtml(data.measurements)}
+                ${framesHtml(data.frames)}
+                ${plotsHtml(data.plots)}
+            </div>
+            ${actionsHtml}`;
         return;
     }
     if (data.status === 'success') {
