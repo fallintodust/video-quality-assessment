@@ -7,6 +7,7 @@ let multiAxes = [];               // /api/diagnose/axes 的维度与权重变体
 let axisVariants = {};            // {轴 id: 权重文件名}，多维诊断的逐轴选择
 let extraDetectors = [];          // 可选的组员检测器名称（噪点 / 模糊）
 let extraSelected = {};           // {名称: 是否勾选}
+let leaderboard = [];             // 排行榜：{video, model, modelId, score, scale}
 let selectedModel = null;
 
 // ---- 重新打分：优先复用服务端暂存 video_id（免重传）；暂存失效时回退重传内存中的原文件 ----
@@ -216,6 +217,7 @@ function setupFileInput() {
 
 // ============ 视频预览 ============
 let _previewUrl = null;
+let _previewFile = null;   // 当前预览的文件，用于避免重复重建
 
 function showPreview(file) {
     if (!file) return;
@@ -224,12 +226,22 @@ function showPreview(file) {
     const layout = document.getElementById('uploadLayout');
     if (!pane || !video || !layout) return;
 
+    if (_previewFile === file) return;   // 同一个文件不重建，避免播放被打断
+    _previewFile = file;
+
     const oldUrl = _previewUrl;
     _previewUrl = URL.createObjectURL(file);
     video.src = _previewUrl;
-    video.load();                       // 不调 load() 时换源后偶尔不响应播放
-    // 新源已经设好再释放旧的，避免播放中的 blob 被提前回收
-    if (oldUrl) setTimeout(() => URL.revokeObjectURL(oldUrl), 0);
+    video.load();                        // 不调 load() 时换源后偶尔不响应播放
+    // 旧 blob 要等新视频真正可播放后再释放，提前回收会让播放卡住
+    if (oldUrl) {
+        const release = () => {
+            URL.revokeObjectURL(oldUrl);
+            video.removeEventListener('loadeddata', release);
+        };
+        video.addEventListener('loadeddata', release);
+        setTimeout(release, 5000);       // 兜底，避免事件不触发时泄漏
+    }
 
     document.getElementById('previewName').textContent = file.name;
     const meta = document.getElementById('previewMeta');
@@ -246,6 +258,7 @@ function clearPreview() {
     const layout = document.getElementById('uploadLayout');
     const video = document.getElementById('previewVideo');
     if (_previewUrl) { URL.revokeObjectURL(_previewUrl); _previewUrl = null; }
+    _previewFile = null;
     if (video) { video.pause(); video.removeAttribute('src'); video.load(); }
     if (layout) layout.classList.remove('has-preview');
 }
@@ -417,11 +430,74 @@ function issuesHtml(issues) {
     </div>`;
 }
 
+// ============ 排行榜 ============
+function pushLeader(video, modelId, modelName, score, scale) {
+    leaderboard.push({ video, modelId, model: modelName, score, scale });
+    renderLeaderboard();
+}
+
+function renderLeaderboard() {
+    const box = document.getElementById('leaderboard');
+    if (!box) return;
+    const sel = document.getElementById('leaderModel');
+    const filter = sel ? sel.value : 'all';
+
+    // 模型下拉：只列出已经出过结果的模型
+    if (sel) {
+        const ids = [...new Set(leaderboard.map(r => r.modelId))];
+        const want = '<option value="all">全部模型</option>' + ids.map(id => {
+            const n = (leaderboard.find(r => r.modelId === id) || {}).model || id;
+            return `<option value="${id}">${n}</option>`;
+        }).join('');
+        if (sel.innerHTML !== want) {
+            sel.innerHTML = want;
+            sel.value = ids.includes(filter) || filter === 'all' ? filter : 'all';
+        }
+    }
+
+    const rows = leaderboard
+        .filter(r => filter === 'all' || r.modelId === filter)
+        .slice()
+        .sort((a, b) => b.score - a.score);
+
+    if (!rows.length) {
+        box.innerHTML = '<div class="empty-hint">评估后此处按分数排名</div>';
+        return;
+    }
+    const mixed = filter === 'all'
+        && new Set(rows.map(r => r.scale)).size > 1;
+
+    box.innerHTML = `
+        ${mixed ? '<div class="leader-warn"><i class="fas fa-exclamation-triangle"></i> 当前混合了不同量纲的模型，跨模型排名仅供参考</div>' : ''}
+        <table class="mx-table leader-table">
+            <thead><tr><th>名次</th><th>视频</th><th>分数</th><th>模型</th><th>量纲</th></tr></thead>
+            <tbody>
+                ${rows.map((r, i) => `
+                    <tr class="${i === 0 ? 'leader-top' : ''}">
+                        <td class="leader-rank">${i + 1}</td>
+                        <td class="mx-name">${r.video}</td>
+                        <td class="mx-pred">${r.score.toFixed(2)}</td>
+                        <td class="leader-model">${r.model}</td>
+                        <td class="leader-scale">${r.scale}</td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>`;
+}
+
+function clearLeaderboard() {
+    leaderboard = [];
+    renderLeaderboard();
+}
+
 // ============ 多维诊断渲染 ============
 function measurementsHtml(ms) {
     if (!ms) return '';
-    const order = ['overall', 'shake', 'stutter', 'temporal', 'flicker'];
-    const rows = order.filter(k => ms[k]).map(k => {
+    // 已知四轴 + 闪烁在前，组员的附加检测器（噪点 / 模糊等）接在后面
+    const known = ['overall', 'shake', 'stutter', 'temporal', 'flicker'];
+    const order = known.filter(k => ms[k])
+        .concat(Object.keys(ms).filter(k => !known.includes(k)));
+    const rows = order.map(k => {
         const m = ms[k];
         const c = LEVEL_COLOR[m.level] || '#a0aec0';
         const pred = (m.prediction === null || m.prediction === undefined)
@@ -526,6 +602,8 @@ function updateResultCard(card, data, error) {
         card.classList.add('completed');
         if (data.video_id) card._videoId = data.video_id;
         const ov = data.measurements.overall;
+        if (ov) pushLeader(data.video || card.querySelector('.result-name').textContent,
+                           'multiaxis', '多维诊断', ov.prediction, '1~5');
         card.querySelector('.result-status').innerHTML = ov
             ? `<span class="mos-score">${ov.prediction.toFixed(2)}</span>`
             : '<span class="mos-score">-</span>';
@@ -547,6 +625,8 @@ function updateResultCard(card, data, error) {
         card.classList.add('completed');
         if (data.video_id) card._videoId = data.video_id;   // 服务端暂存 id，供免重传重新打分
         const score = data.score;
+        pushLeader(data.video_name || card.querySelector('.result-name').textContent,
+                   data.model_id, data.model_name, score, data.scale);
         card.querySelector('.result-status').innerHTML =
             `<span class="mos-score">${score.toFixed(2)}</span>`;
         card.querySelector('.result-body').innerHTML = `
