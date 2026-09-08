@@ -195,6 +195,58 @@ def available():
 
 # ---------------------------------------------------------------- frames
 
+def _cv2_frame_count(path):
+    """OpenCV 解码时的帧数（CAP_PROP_FRAME_COUNT 不可信时边读边数）。"""
+    import cv2
+
+    cap = cv2.VideoCapture(path)
+    if not cap.isOpened():
+        cap.release()
+        raise IOError(f"无法打开视频: {path}")
+    n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    if n <= 0:
+        n = 0
+        while True:
+            ok, _ = cap.read()
+            if not ok:
+                break
+            n += 1
+        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+    cap.release()
+    return n
+
+
+def _cv2_read(path, wanted):
+    """OpenCV 逐帧解码并返回 wanted 索引对应帧 [U,224,224,3] uint8 RGB。
+
+    用于 decord 缺失的机器（Windows 无官方 decord 轮子）；
+    采样索引语义与 decord 路径一致，仅解码器不同。
+    """
+    import cv2
+
+    cap = cv2.VideoCapture(path)
+    if not cap.isOpened():
+        cap.release()
+        raise IOError(f"无法打开视频: {path}")
+    want_set = set(int(i) for i in wanted)
+    frames = []
+    n = 0
+    while True:
+        ok, frame = cap.read()
+        if not ok:
+            break
+        if n in want_set:
+            frame = cv2.resize(frame, (SIZE, SIZE))
+            frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        n += 1
+    cap.release()
+    if not frames:
+        raise IOError(f"视频无有效帧: {path}")
+    while len(frames) < len(wanted):     # 帧数不足：末帧补齐
+        frames.append(frames[-1])
+    return np.stack(frames)
+
+
 def _read_both(path):
     """Decode once for both consumers.
 
@@ -206,10 +258,20 @@ def _read_both(path):
     Decoding twice cost a full extra pass over the file, so instead we take the
     union of both index sets in a single get_batch and map each consumer back
     to its own frames.
+
+    解码后端：优先 decord（与训练端一致）；decord 缺失时回退 OpenCV
+    （逐帧解码 + BGR→RGB，索引语义不变）。
     """
-    from decord import VideoReader, cpu
-    vr = VideoReader(path, ctx=cpu(0), width=SIZE, height=SIZE, num_threads=2)
-    n = len(vr)
+    try:
+        from decord import VideoReader, cpu
+    except ImportError:
+        VideoReader = None
+
+    if VideoReader is not None:
+        vr = VideoReader(path, ctx=cpu(0), width=SIZE, height=SIZE, num_threads=2)
+        n = len(vr)
+    else:
+        n = _cv2_frame_count(path)
 
     head_idx = clip_indices(n, N_CLIPS, CLIP_LEN)
     if n <= FLICKER_MAX_FRAMES:
@@ -222,7 +284,10 @@ def _read_both(path):
         note = f"{FLICKER_CLIPS}x{FLICKER_CLIP_LEN} / {n} 帧（{cov:.0f}% 覆盖）"
 
     union = np.unique(np.concatenate([head_idx, flick_idx]))
-    batch = vr.get_batch(union).asnumpy()
+    if VideoReader is not None:
+        batch = vr.get_batch(union).asnumpy()
+    else:
+        batch = _cv2_read(path, union)
     pos = {int(v): i for i, v in enumerate(union)}
 
     raw = batch[[pos[int(i)] for i in head_idx]]
