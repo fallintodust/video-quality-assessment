@@ -30,14 +30,16 @@
 - [x] (B) 半监督 v2（重标定 + weight 0.2 + var 0.05 + 裁剪）：**轮次 2 best SROCC=0.6897 / PLCC=0.6561 / OBJ=1.3457 反超 baseline**；轮次 5 B.2 组内决定跳过（轮 3/4 连续无提升）
 - [x] eval_val 高精度复核最终权重（SROCC=0.689669 / PLCC=0.656080 / OBJ=1.345750）
 - [x] DOVER 复现（`dover_repro/`）：零样本 SROCC=0.7110 / PLCC=0.7053；测试集对比 11/11 排序全对（详见 `docs/test_comparison_report.md`）
-- [ ] DOVER++ 微调复现（目标 0.8071/0.8126）→ 训练启动后监控
+- [ ] DOVER++ 微调复现（目标 0.8071/0.8126）：**线性微调 4 epoch 完成 SROCC=0.7854 / PLCC=0.7905**（s 分支 best，权重已入 Vzixing）；端到端阶段待续跑（`resume.pth` 就绪，见 `docs/doverpp_experiment_summary.md`）
 - [ ] CAMP-VQA 零样本对照实验：**已交接 Peter**（docs/campvqa_handoff.md），待其回报结果后补 README 实验表
 - [ ] 全部完成后取 OBJ 最优权重 → `predict.py` 出最终 `score.txt`
 
 ## 🟢 问题判定（三条支线）
 
+> ⚠️ 截至 2026-09-06 19:00：仅**闪烁**（组员2 Peter）完成并合并 main；**噪点**（组员1）与**模糊**（组员3）正式实现未提交（无分支/PR），当前运行的是组长参考实现，答辩前需催。
+
 - [ ] 噪点判定实现（组员1）
-- [ ] 闪烁判定实现（组员2，替换参考实现 `heuristic_flicker`）
+- [x] 闪烁判定实现（组员2 Peter：模型版已合并 main，SROCC=0.5807）
 - [ ] 模糊判定实现（组员3）
 - [ ] `diagnose.py` 集成联调，报告格式对齐
 - 合成数据：闪烁生成器已有（`scripts/make_flicker_dataset.py`，自测 SROCC≈0.92）；噪点/模糊合成生成器由对应组员补充（用于自测与消融）

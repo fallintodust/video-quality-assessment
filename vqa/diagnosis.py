@@ -223,76 +223,61 @@ BLUR_DETECTOR = heuristic_blur
 register_detector("噪点", heuristic_noise)
 register_detector("模糊", heuristic_blur)
 # register_detector("闪烁", heuristic_flicker)
+
 # ============================================================================
-# 闪烁检测：接入训练好的时域模型（组员2 / ALEKSEEV PETR）
+# 闪烁检测：接入启发式 v2（组员2 / ALEKSEEV PETR）
 #
-# 把本段追加到 vqa/diagnosis.py 末尾，替换原来的
-#     register_detector("闪烁", heuristic_flicker)
-# 一行（把那一行删掉或注释掉）。
+# 为什么用启发式而不是模型：
+#   MaxWell 的 16 条标注轴里没有"闪烁"，最接近的 T-5 是摄像机抖动、
+#   T-8 是播放卡顿，都不是亮度周期性波动。既然没有闪烁标注，
+#   就没有可训练的目标。
 #
-# 设计说明：
-#   - 懒加载：只有真正调用检测器时才载入骨干与权重，
-#     `import vqa.diagnosis` 本身不会花几秒去建 ResNet。
-#   - 有回退：torch 不可用、权重缺失或加载失败时，
-#     自动退回启发式实现，diagnose.py 依然能跑通。
-#   - 权重路径可用环境变量 FLICKER_CKPT 覆盖。
+#   在真实视频注入式闪烁基准（n=600，见 docs/flicker_detector.md）上：
+#       启发式 v2（连续片段）  SROCC 0.8558 / PLCC 0.8550 / Score 0.8554
+#       模型版（T-5 轴训练）   SROCC 0.5987 / PLCC 0.5943 / Score 0.5965
+#   启发式领先 0.26，快 1.8 倍，且不依赖 torch 与权重文件。
 #
-# 实测对比（T-5 验证集 200 视频，见 docs/flicker_detector.md）：
-#     模型          SROCC 0.5807  PLCC 0.5976  Score 0.5891
-#     启发式 v2     SROCC 0.2937  PLCC 0.2928  Score 0.2932
-#     原启发式基线  更低
+# 原参考实现 heuristic_flicker 用相邻帧差均值，无法区分闪烁与快速运动
+# （两者帧差都很大）。v2 改用去趋势后的逐帧平均亮度波动 + FFT 谱集中度：
+# 闪烁使整帧一起明暗变化、帧均值振荡；运动只是内容位移、帧均值几乎不变。
+# 合成验证：快速运动帧差 26.98（原基线判"重"），v2 判 0.000。
+#
+# 模型版实现仍保留在 scripts/flicker_detectors.py 的 ModelFlicker 中，
+# 若日后拿到真实的闪烁主观标注，可重新训练后再做对比。
 # ============================================================================
 
 import os as _os
 import sys as _sys
 
-_FLICKER_CKPT = _os.environ.get(
-    "FLICKER_CKPT",
-    _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
-                  "runs", "t5", "best_r50_mean+std+diff.pt"))
-
-_model_flicker = None          # 懒加载后的实例
-_model_failed = False          # 失败过就不再重试
+_SCRIPTS = _os.path.join(
+    _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "scripts")
+if _SCRIPTS not in _sys.path:
+    _sys.path.insert(0, _SCRIPTS)
 
 
-def _get_model_flicker():
-    global _model_flicker, _model_failed
-    if _model_flicker is not None or _model_failed:
-        return _model_flicker
-    try:
-        root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
-        scripts = _os.path.join(root, "scripts")
-        if scripts not in _sys.path:
-            _sys.path.insert(0, scripts)
-        from flicker_detectors import ModelFlicker
-        _model_flicker = ModelFlicker(_FLICKER_CKPT, scripts_dir=scripts)
-        print(f"[闪烁] 已加载模型: {_os.path.basename(_FLICKER_CKPT)}")
-    except Exception as e:
-        _model_failed = True
-        print(f"[闪烁] 模型加载失败（{e}），回退到启发式实现")
-    return _model_flicker
+def flicker_detector(frames_rgb):
+    """闪烁检测（启发式 v2）。
 
+    frames_rgb: [T, H, W, 3] uint8 RGB
+    返回: {"score": 0~1, "level": "无/轻/中/重", "detail": {...}}
 
-def model_flicker_detector(frames_rgb):
-    """闪烁/时域一致性检测（模型版，带启发式回退）。
+    detail 含三项：
+        luma_pump        去趋势后的逐帧平均亮度波动幅度（主信号）
+        periodicity      该波动的 FFT 谱集中度，闪烁周期性强、运动为宽带
+        frame_diff_mean  相邻帧差均值（仅供参考，不参与打分）
 
-    frames_rgb: [T, size, size, 3] uint8 RGB，由 load_frames_rgb 提供。
-
-    注意抽帧方式：diagnose.py 用的是全局均匀抽帧（TSN 式），
-    而模型是在连续片段上训练的。实测这一"不匹配"反而更好
-    （Score 0.6186 对 0.5891），原因是 T-5 的抖动是秒级现象，
-    均匀抽帧的时间窗口更长，详见 docs/cached_feature_pipeline.md 6.5 节。
+    注：diagnose_video 传入的是全局均匀抽帧（TSN 式）。闪烁 3~8 Hz，
+    均匀抽帧的等效采样率约 5.3 Hz、奈奎斯特上限 2.7 Hz，理论上会混叠；
+    实测启发式在均匀抽帧下 0.7411、连续片段下 0.8554。
+    若后续 load_frames_rgb 支持连续片段抽帧，这里传 clip_len 即可提升。
     """
-    m = _get_model_flicker()
-    if m is None:
-        return heuristic_flicker(frames_rgb)
     try:
-        return m(frames_rgb)
-    except Exception as e:
-        print(f"[闪烁] 推理失败（{e}），本条回退到启发式")
+        from flicker_detectors import heuristic_flicker_v2
+    except ImportError:
+        # scripts/ 不可用时回退到本文件内的参考实现
         return heuristic_flicker(frames_rgb)
+    return heuristic_flicker_v2(frames_rgb, clip_len=None)
 
 
-FLICKER_DETECTOR = model_flicker_detector
+FLICKER_DETECTOR = flicker_detector
 register_detector("闪烁", FLICKER_DETECTOR)
-

@@ -621,3 +621,613 @@ footer {
 .model-info-item { margin-bottom: 14px; }
 .model-info-item h4 { color: #4299e1; margin-bottom: 4px; }
 .model-info-item p { color: #a0aec0; font-size: .85rem; line-height: 1.6; margin: 0; }
+
+/* ===== 重新打分（结果卡片操作区） ===== */
+.card-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px dashed #e2e8f0;
+}
+.btn-rescore {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    font-size: .8rem;
+    font-weight: 600;
+    color: #667eea;
+    background: #ebf0ff;
+    border: 1px solid #667eea;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all .2s;
+}
+.btn-rescore:hover {
+    background: #667eea;
+    color: #fff;
+    transform: translateY(-1px);
+    box-shadow: 0 3px 8px rgba(102, 126, 234, 0.3);
+}
+.btn-rescore:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+/* ============================================================
+   多维诊断（整体质量 / 抖动 / 卡顿 / 纯时域 / 闪烁）
+   配色沿用上方已有变量，未引入新色板
+   ============================================================ */
+
+/* --- Gradio 风格加载占位：骨架块 + 轮换提示语 --- */
+.skeleton-wrap { padding: 4px 0; }
+
+.skeleton {
+    background: linear-gradient(90deg, #edf2f7 25%, #f7fafc 37%, #edf2f7 63%);
+    background-size: 400% 100%;
+    animation: skeleton-shimmer 1.4s ease infinite;
+    border-radius: 6px;
+}
+
+.skeleton-line { height: 12px; margin-bottom: 10px; }
+.skeleton-line.w70 { width: 70%; }
+.skeleton-line.w45 { width: 45%; }
+.skeleton-block { height: 64px; }
+
+@keyframes skeleton-shimmer {
+    0%   { background-position: 100% 50%; }
+    100% { background-position: 0 50%; }
+}
+
+.loading-hint .hint-text {
+    font-size: 13px;
+    color: #a0aec0;
+    margin-left: 4px;
+}
+
+/* --- 多维测量表 --- */
+.mx-box {
+    margin-top: 14px;
+    padding: 12px;
+    background: #f7fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+}
+
+.mx-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #4a5568;
+    margin-bottom: 10px;
+}
+
+.mx-title i { margin-right: 6px; color: #667eea; }
+
+.mx-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.mx-table th {
+    text-align: left;
+    font-weight: 500;
+    color: #a0aec0;
+    font-size: 12px;
+    padding: 4px 8px 6px 0;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.mx-table td {
+    padding: 7px 8px 7px 0;
+    border-bottom: 1px solid #edf2f7;
+    vertical-align: middle;
+}
+
+.mx-table tr:last-child td { border-bottom: none; }
+
+.mx-name  { font-weight: 600; color: #2d3748; white-space: nowrap; }
+.mx-pred  { font-variant-numeric: tabular-nums; color: #4a5568; white-space: nowrap; }
+.mx-level { font-weight: 600; white-space: nowrap; }
+.mx-sev   { font-weight: 400; color: #a0aec0; font-size: 12px; }
+.mx-desc  { color: #a0aec0; font-size: 12px; }
+
+/* 严重度条：颜色由 JS 按等级注入，与 issue-chip 同一套 */
+.mx-bar {
+    width: 90px;
+    min-width: 90px;
+}
+
+.mx-bar span {
+    display: block;
+    height: 6px;
+    border-radius: 3px;
+    background: #cbd5e0;
+    transition: width .3s ease;
+}
+
+.mx-detail, .mx-note {
+    margin-top: 8px;
+    font-size: 12px;
+    color: #a0aec0;
+    line-height: 1.6;
+}
+
+/* --- 抖动权重变体选择 --- */
+.mx-variant {
+    margin-top: 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.mx-variant label {
+    font-size: 12px;
+    color: #4a5568;
+    font-weight: 500;
+}
+
+.mx-variant label i { margin-right: 4px; color: #667eea; }
+
+.mx-variant select {
+    flex: 1;
+    min-width: 220px;
+    padding: 5px 8px;
+    font-size: 12px;
+    color: #2d3748;
+    background: #fff;
+    border: 1px solid #cbd5e0;
+    border-radius: 6px;
+}
+
+/* --- 抽取的帧 --- */
+.mx-frames {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+    gap: 4px;
+}
+
+.mx-frames img {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    object-fit: cover;
+    border-radius: 4px;
+    border: 1px solid #e2e8f0;
+    cursor: zoom-in;
+    transition: transform .15s ease;
+}
+
+.mx-frames img:hover {
+    transform: scale(1.6);
+    z-index: 5;
+    position: relative;
+    box-shadow: 0 4px 16px rgba(45, 55, 72, .25);
+}
+
+/* --- 时域信号图 --- */
+.mx-plots {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.mx-plots img {
+    flex: 1 1 320px;
+    max-width: 100%;
+    border-radius: 6px;
+    border: 1px solid #e2e8f0;
+    background: #fff;
+}
+
+/* --- 各维度权重面板（与模型卡同处一个网格，排在右侧） --- */
+.variant-panel {
+    padding: 14px 16px;
+    background: #f7fafc;
+    border: 1px dashed #cbd5e0;
+    border-radius: 10px;
+}
+
+.variant-panel-head {
+    font-size: 13px;
+    font-weight: 600;
+    color: #4a5568;
+    margin-bottom: 12px;
+}
+
+.variant-panel-head i { margin-right: 6px; color: #667eea; }
+
+/* 左：轴名称与目录；右：该轴的权重变体单选 */
+.axis-row {
+    display: flex;
+    gap: 14px;
+    padding: 9px 0;
+    border-top: 1px solid #e2e8f0;
+}
+
+.axis-row:first-of-type { border-top: none; padding-top: 0; }
+
+.axis-info { flex: 0 0 96px; }
+
+.axis-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: #2d3748;
+}
+
+.axis-dir {
+    font-size: 11px;
+    color: #a0aec0;
+    margin-top: 2px;
+    line-height: 1.4;
+}
+
+.axis-opts {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.variant-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background .15s ease;
+}
+
+.variant-item:hover { background: #edf2f7; }
+.variant-item.selected { background: #edf2f7; }
+.variant-item input { accent-color: #667eea; margin: 0; flex: 0 0 auto; }
+
+.variant-label {
+    font-size: 12px;
+    color: #2d3748;
+    line-height: 1.4;
+}
+
+.variant-item.selected .variant-label { font-weight: 600; }
+
+.variant-hint {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid #e2e8f0;
+    font-size: 11px;
+    color: #a0aec0;
+}
+
+/* --- 变体选项：2 个一行、4 个两行两列 --- */
+.axis-opts {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2px 8px;
+}
+
+.axis-opts.n1, .axis-opts.n3 { grid-template-columns: 1fr; }
+
+.variant-item { align-items: flex-start; }
+.variant-item input { margin-top: 2px; }
+
+/* --- 失真问题反馈：与多维测量同款强度条 --- */
+.issue-bar {
+    display: block;
+    width: 100%;
+    height: 4px;
+    margin-top: 5px;
+    border-radius: 2px;
+    background: #e2e8f0;
+    overflow: hidden;
+}
+
+.issue-bar span {
+    display: block;
+    height: 100%;
+    border-radius: 2px;
+    transition: width .3s ease;
+}
+
+/* --- 折叠块：抽取的帧 / 时域信号 --- */
+.mx-collapse .mx-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    margin-bottom: 0;
+    user-select: none;
+}
+
+.mx-collapse .mx-chevron {
+    margin-left: auto;
+    font-size: 11px;
+    color: #a0aec0;
+    transition: transform .2s ease;
+}
+
+.mx-collapse.open .mx-chevron { transform: rotate(180deg); }
+
+.mx-collapse .mx-collapse-body { display: none; }
+.mx-collapse.open .mx-collapse-body { display: block; margin-top: 10px; }
+
+/* --- 结果区：横向条带，左右滚动而不是纵向堆叠 ---
+   #resultsGrid 是 id 选择器（grid 布局），这里必须同样带 id 才能覆盖，
+   否则卡片仍会按网格换行。 */
+#resultsGrid.results-strip {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: flex-start;
+    gap: 14px;
+    overflow-x: auto;
+    overflow-y: visible;
+    padding-bottom: 12px;
+    scroll-snap-type: x proximity;
+}
+
+#resultsGrid.results-strip .result-card {
+    flex: 0 0 clamp(320px, 32vw, 440px);
+    scroll-snap-align: start;
+    /* 卡片本身不再出现纵向滚动条：内容用折叠块收起即可 */
+    max-height: none;
+    overflow: visible;
+}
+
+/* 只保留条带底部这一条滚动条，配色沿用现有灰阶 */
+#resultsGrid.results-strip::-webkit-scrollbar { height: 12px; }
+#resultsGrid.results-strip::-webkit-scrollbar-track {
+    background: #edf2f7;
+    border-radius: 6px;
+}
+#resultsGrid.results-strip::-webkit-scrollbar-thumb {
+    background: #cbd5e0;
+    border-radius: 6px;
+    border: 3px solid #edf2f7;
+}
+#resultsGrid.results-strip::-webkit-scrollbar-thumb:hover { background: #a0aec0; }
+
+#resultsGrid.results-strip .mx-frames {
+    grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
+}
+
+/* --- 权重面板占两列，避免文字被挤成窄条 --- */
+.variant-panel { grid-column: span 2; }
+
+@media (max-width: 900px) {
+    .variant-panel { grid-column: span 1; }
+    .axis-opts, .axis-opts.n4 { grid-template-columns: 1fr; }
+}
+
+/* --- 失真问题反馈：强度条与多维测量完全同款 --- */
+.issue-chip { min-width: 120px; }
+
+.issue-bar {
+    display: block;
+    width: 100%;
+    height: 6px;
+    margin-top: 6px;
+    border-radius: 3px;
+    background: #cbd5e0;
+    overflow: hidden;
+}
+
+.issue-bar span {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+    transition: width .3s ease;
+}
+
+/* --- 失真问题反馈改为表格样式（与多维测量一致），不再用方块 chip --- */
+.issues-box, .issue-chip, .issues-grid, .issue-bar { /* 旧样式不再使用 */ }
+
+/* --- score.txt 操作区：控件等高等宽，视觉整齐 --- */
+.scoretxt-section .section-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.scoretxt-section .section-actions > * {
+    height: 40px;
+    min-width: 150px;
+    margin: 0;
+    box-sizing: border-box;
+    font-size: 0.9rem;
+    border-radius: 8px;
+}
+
+.scoretxt-section .section-actions button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 0 16px;
+}
+
+.scoretxt-section .section-actions select {
+    padding: 0 12px;
+    background: #fff;
+    color: #2d3748;
+    border: 1px solid #cbd5e0;
+}
+
+/* ============================================================
+   上传区 + 视频预览
+   未选文件：上传区居中占满；选中后左侧预览、右侧上传区收窄
+   ============================================================ */
+.upload-layout {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+    align-items: stretch;
+    transition: grid-template-columns .25s ease;
+}
+
+.upload-layout.has-preview {
+    grid-template-columns: 1fr 1fr;
+}
+
+/* 预览面板默认不占位 */
+.preview-pane { display: none; }
+
+.upload-layout.has-preview .preview-pane {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 14px;
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+}
+
+.preview-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.preview-name {
+    flex: 1;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #2d3748;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.preview-close {
+    flex: 0 0 auto;
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #edf2f7;
+    color: #4a5568;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background .15s ease;
+}
+
+.preview-close:hover { background: #e2e8f0; }
+
+#previewVideo {
+    width: 100%;
+    flex: 1;
+    min-height: 200px;
+    max-height: 340px;
+    background: #2d3748;
+    border-radius: 10px;
+    object-fit: contain;
+}
+
+.preview-meta {
+    font-size: 0.8rem;
+    color: #a0aec0;
+    text-align: center;
+}
+
+/* 选中文件后上传区收窄，内边距同步收敛 */
+.upload-layout.has-preview .drop-zone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 16px;
+}
+
+.upload-layout.has-preview .drop-zone i.fa-4x { font-size: 2.5em; }
+
+/* 选择视频按钮：图标与文字居中对齐，不再错位 */
+.drop-zone .btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    line-height: 1;
+}
+
+.drop-zone .btn-primary i { margin: 0; }
+
+@media (max-width: 900px) {
+    .upload-layout.has-preview { grid-template-columns: 1fr; }
+}
+
+/* --- 附加检测（组员的噪点 / 模糊）勾选行 --- */
+.extras-row { border-top: 1px solid #e2e8f0; }
+.extras-row .variant-item input { accent-color: #667eea; }
+
+/* --- 视频排名 --- */
+.leader-section { margin: 24px 0; }
+
+.leader-section .section-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.leader-section .section-actions > * {
+    height: 40px;
+    min-width: 150px;
+    margin: 0;
+    box-sizing: border-box;
+    font-size: 0.9rem;
+    border-radius: 8px;
+}
+
+.leader-section .section-actions select {
+    padding: 0 12px;
+    background: #fff;
+    color: #2d3748;
+    border: 1px solid #cbd5e0;
+}
+
+.leader-section .section-actions button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 0 16px;
+}
+
+#leaderboard {
+    margin-top: 14px;
+    padding: 12px 16px;
+    background: #f7fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+}
+
+.leader-table td, .leader-table th { padding: 8px 10px 8px 0; }
+
+.leader-rank {
+    width: 48px;
+    font-weight: 700;
+    color: #a0aec0;
+    font-variant-numeric: tabular-nums;
+}
+
+.leader-top .leader-rank { color: #667eea; }
+.leader-top .mx-name { color: #667eea; }
+
+.leader-model { font-size: 12px; color: #4a5568; }
+.leader-scale { font-size: 12px; color: #a0aec0; white-space: nowrap; }
+
+.leader-warn {
+    margin-bottom: 10px;
+    padding: 8px 10px;
+    font-size: 12px;
+    color: #4a5568;
+    background: #edf2f7;
+    border-left: 3px solid #ed8936;
+    border-radius: 4px;
+}
+
+.leader-warn i { color: #ed8936; margin-right: 6px; }

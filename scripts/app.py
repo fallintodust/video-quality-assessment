@@ -1,17 +1,27 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Gradio web UI for the video quality assessment model.
+Gradio UI: multi-measure video quality diagnosis.
 
-Two tabs:
-  Single video - upload a clip, get a score, see the sampled frames and a
-                 per-frame instability curve (what the model reacts to)
-  Batch        - point at a folder, get score.txt plus the timing needed for
-                 the assignment's scoring formula
+A single score answers only one question. This panel runs four measurements on
+the same clip, because they detect different things:
+
+    overall quality     head trained on the O axis (MaxWell overall MOS)
+    camera shake        head trained on T-5 (stable/shaky)
+    stutter             head trained on T-8 (fluent/choppy)
+    brightness flicker  heuristic v2 - no model, no weights
+
+Why the flicker slot is a heuristic and not a head: MaxWell has no flicker
+axis, so no head can be trained for it. On an injected-flicker benchmark
+(n=600) the heuristic scores 0.8554 against 0.5965 for the T-5 head - see
+docs/flicker_detector.md.
+
+All heads share one feature extraction pass, so extra measurements are nearly
+free.
 
 Usage:
     python3 scripts/app.py
-    python3 scripts/app.py --ckpt runs/t5/best_all_mean.pt --share
+    python3 scripts/app.py --runs runs --port 7860
 """
 import argparse
 import glob
@@ -24,59 +34,139 @@ import numpy as np
 import torch
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from extract_feats import Extractor, clip_indices, IMAGENET_MEAN, IMAGENET_STD  # noqa: E402
+from extract_feats import (Extractor, clip_indices,  # noqa: E402
+                           IMAGENET_MEAN, IMAGENET_STD)
 from train_head import Head, aggregate, CONV_DIM  # noqa: E402
+from flicker_detectors import heuristic_flicker_v2, level_from_score  # noqa: E402
 
-STATE = {}          # loaded model + settings, filled by load_checkpoint()
+N_CLIPS, CLIP_LEN, SIZE = 4, 8, 224
+
+# Each measurement maps to one runs/<sub>/ directory. Preferred checkpoints are
+# tried in order; whatever else is in that directory becomes a selectable
+# alternative in the UI.
+MEASURES = [
+    ("Overall quality", "o",
+     ["best_all_mean.pt", "best_r50_mean.pt", "best_all_mean+std+diff.pt"],
+     "General picture quality: sharpness, noise, exposure, composition"),
+    ("Camera shake", "t5",
+     ["best_r50_mean+std+diff.pt", "best_all_mean+std+diff.pt"],
+     "Handheld wobble. A seconds-scale phenomenon"),
+    ("Stutter", "t8",
+     ["best_all_mean+std+diff.pt", "best_r50_mean+std+diff.pt"],
+     "Broken playback continuity, frame-scale"),
+    ("Temporal residual", "tcons",
+     ["best_r50_mean+std+diff.pt", "best_all_mean+std+diff.pt"],
+     "Shake+stutter with frame-level quality regressed out"),
+]
+
+STATE = {"heads": [], "extractor": None, "dev": "cpu"}
 
 
-# ---------------------------------------------------------------- model
+def list_ckpts(runs_dir, sub, preferred):
+    """All checkpoints in runs/<sub>/, preferred ones first."""
+    found = sorted(glob.glob(os.path.join(runs_dir, sub, "*.pt")))
+    names = [os.path.basename(p) for p in found]
+    ordered = [n for n in preferred if n in names]
+    ordered += [n for n in names if n not in ordered]
+    return [os.path.join(runs_dir, sub, n) for n in ordered]
 
-def find_checkpoints(root="runs"):
-    return sorted(glob.glob(os.path.join(root, "**", "*.pt"), recursive=True))
 
-
-def load_checkpoint(path):
-    """(Re)load a head checkpoint and, if needed, the backbones."""
+def load_head(path):
+    dev = STATE["dev"]
     ck = torch.load(path, map_location="cpu", weights_only=False)
     ta = ck["args"]
-    branch = ta["branch"]
-    use_vit = branch != "r50"
+    h = Head(len(ck["mu"])).to(dev)
+    h.load_state_dict(ck["state"])
+    h.eval()
+    return {"head": h, "modes": ta["agg"].split("+"), "branch": ta["branch"],
+            "mu": ck["mu"], "sd": ck["sd"],
+            "y_mu": ck["y_mu"], "y_sd": ck["y_sd"],
+            "path": path, "agg": ta["agg"]}
+
+
+def scan(runs_dir):
+    """What is available on disk, per measurement."""
+    STATE["runs_dir"] = runs_dir
+    STATE["choices"] = {}
+    for title, sub, pref, _ in MEASURES:
+        STATE["choices"][title] = list_ckpts(runs_dir, sub, pref)
+    return STATE["choices"]
+
+
+def ensure_extractor():
     dev = "cuda" if torch.cuda.is_available() else "cpu"
+    STATE["dev"] = dev
+    if STATE["extractor"] is None:
+        STATE["extractor"] = Extractor(use_vit=True).to(dev)
+    return dev
 
-    # the extractor is expensive to build, so only rebuild it when the
-    # branch configuration actually changes
-    if STATE.get("use_vit") != use_vit or "extractor" not in STATE:
-        STATE["extractor"] = Extractor(use_vit=use_vit).to(dev)
-        STATE["use_vit"] = use_vit
 
-    head = Head(len(ck["mu"])).to(dev)
-    head.load_state_dict(ck["state"])
-    head.eval()
+def apply_selection(*paths):
+    """Load exactly the checkpoints picked in the UI. Empty = measurement off."""
+    dev = ensure_extractor()
+    heads, lines = [], []
+    for (title, sub, _, desc), path in zip(MEASURES, paths):
+        if not path:
+            lines.append(f"  {title:20s}  (off)")
+            continue
+        try:
+            e = load_head(path)
+        except Exception as exc:
+            lines.append(f"  {title:20s}  FAILED: {exc}")
+            continue
+        e.update(title=title, desc=desc)
+        heads.append(e)
+        lines.append(f"  {title:20s}  {os.path.basename(path)}"
+                     f"   [{e['agg']} / {e['branch']}]")
+    STATE["heads"] = heads
+    return (f"device: {dev}   |   {len(heads)} head(s) + heuristic flicker\n"
+            + "\n".join(lines))
 
-    STATE.update(
-        head=head, dev=dev, branch=branch,
-        modes=ta["agg"].split("+"), clip_len=ta["clip_len"],
-        n_clips=ta.get("clips", 4), size=ta.get("size", 224),
-        mu=ck["mu"], sd=ck["sd"], y_mu=ck["y_mu"], y_sd=ck["y_sd"],
-        path=path,
-    )
-    return (f"loaded: {os.path.basename(path)}\n"
-            f"aggregation {ta['agg']} | branch {branch} | "
-            f"{STATE['n_clips']} clips x {STATE['clip_len']} frames | {dev}")
+
+# The heads and the flicker heuristic want different frames.
+#
+# The heads were trained on 4 clips of 8 frames, so they must get exactly that.
+# But 32 frames out of a 106-frame clip is 30% coverage with 25-frame gaps -
+# intermittent flicker can fall straight into a gap. And an 8-frame window at
+# 30 fps is 0.27 s, which is less than one period of a 3 Hz flicker, so the
+# detrending step inside the heuristic mistakes a partial sine for a ramp.
+#
+# The heuristic is cheap (no network, ~200 ms), so it gets its own denser
+# sampling: the whole video when it is short, a long contiguous window
+# otherwise.
+FLICKER_MAX_FRAMES = 256
+FLICKER_CLIPS, FLICKER_CLIP_LEN = 8, 32
 
 
 def read_frames(path):
+    """Frames for the regression heads: exactly the training layout."""
     from decord import VideoReader, cpu
-    s = STATE["size"]
-    vr = VideoReader(path, ctx=cpu(0), width=s, height=s, num_threads=1)
+    vr = VideoReader(path, ctx=cpu(0), width=SIZE, height=SIZE, num_threads=1)
     n_total = len(vr)
-    idx = clip_indices(n_total, STATE["n_clips"], STATE["clip_len"])
-    raw = vr.get_batch(idx).asnumpy()                       # [T,H,W,3] uint8
+    idx = clip_indices(n_total, N_CLIPS, CLIP_LEN)
+    raw = vr.get_batch(idx).asnumpy()
     x = torch.from_numpy(raw).permute(0, 3, 1, 2).float().div_(255.)
     x = (x - torch.tensor(IMAGENET_MEAN).view(1, 3, 1, 1)) / \
         torch.tensor(IMAGENET_STD).view(1, 3, 1, 1)
     return raw, x, n_total
+
+
+def read_frames_flicker(path):
+    """Frames for the flicker heuristic: as much contiguous coverage as is
+    affordable. Returns (frames, clip_len, coverage_note)."""
+    from decord import VideoReader, cpu
+    vr = VideoReader(path, ctx=cpu(0), width=SIZE, height=SIZE, num_threads=1)
+    n = len(vr)
+    if n <= FLICKER_MAX_FRAMES:
+        idx = np.arange(n)
+        frames = vr.get_batch(idx).asnumpy()
+        return frames, n, f"all {n} frames (100% coverage)"
+    idx = clip_indices(n, FLICKER_CLIPS, FLICKER_CLIP_LEN)
+    frames = vr.get_batch(idx).asnumpy()
+    cov = FLICKER_CLIPS * FLICKER_CLIP_LEN / n * 100
+    return (frames, FLICKER_CLIP_LEN,
+            f"{FLICKER_CLIPS}x{FLICKER_CLIP_LEN} of {n} frames "
+            f"({cov:.0f}% coverage)")
 
 
 def extract(x, chunk=16):
@@ -86,170 +176,233 @@ def extract(x, chunk=16):
         for j in range(0, x.shape[0], chunk):
             with torch.autocast(dev, dtype=torch.float16, enabled=(dev == "cuda")):
                 outs.append(STATE["extractor"](x[j:j + chunk].to(dev)).float())
-    seq = torch.cat(outs).cpu().numpy().astype(np.float32)
-    if STATE["branch"] == "r50":
-        seq = seq[:, :CONV_DIM]
-    elif STATE["branch"] == "vit":
-        seq = seq[:, CONV_DIM:]
-    return seq
+    return torch.cat(outs).cpu().numpy().astype(np.float32)
 
 
-def score_from_seq(seq):
-    v = aggregate(seq, STATE["modes"], STATE["clip_len"])
-    v = (v - STATE["mu"]) / STATE["sd"]
+def head_score(entry, seq):
+    s = seq
+    if entry["branch"] == "r50":
+        s = s[:, :CONV_DIM]
+    elif entry["branch"] == "vit":
+        s = s[:, CONV_DIM:]
+    v = aggregate(s, entry["modes"], CLIP_LEN)
+    v = (v - entry["mu"]) / entry["sd"]
     with torch.no_grad():
-        p = STATE["head"](torch.from_numpy(v[None]).float().to(STATE["dev"])).item()
-    return p * STATE["y_sd"] + STATE["y_mu"]
+        p = entry["head"](torch.from_numpy(v[None]).float().to(STATE["dev"])).item()
+    return p * entry["y_sd"] + entry["y_mu"]
 
 
-def instability_plot(seq):
-    """Mean absolute change between adjacent frames, per clip.
+def to_severity(pred, y_mu, y_sd):
+    """Heads predict 'goodness'; the panel shows 'how bad', 0..1."""
+    lo, hi = y_mu - 2.5 * y_sd, y_mu + 2.5 * y_sd
+    return float(np.clip(1.0 - (pred - lo) / (hi - lo), 0.0, 1.0))
 
-    This is the raw signal the 'diff' aggregation is built on: tall bars mean
-    the content changes sharply from one frame to the next.
-    """
+
+def make_plot(seq, raw, fraw=None, fclip=None):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    L = STATE["clip_len"]
-    K = seq.shape[0] // L
+    K, L = N_CLIPS, CLIP_LEN
     d = seq.reshape(K, L, -1)
-    per_step = np.abs(np.diff(d, axis=1)).mean(-1)          # [K, L-1]
+    feat_step = np.abs(np.diff(d, axis=1)).mean(-1)                 # [K, L-1]
 
-    fig, ax = plt.subplots(figsize=(7, 2.6), dpi=110)
+    # brightness curve from the denser flicker sampling when available
+    src = fraw if fraw is not None else raw
+    g = 0.299 * src[..., 0] + 0.587 * src[..., 1] + 0.114 * src[..., 2]
+    seq_luma = g.reshape(len(src), -1).mean(-1)
+
+    fig, ax = plt.subplots(1, 2, figsize=(10, 2.8), dpi=110)
     for k in range(K):
-        ax.plot(range(1, L), per_step[k], marker="o", ms=3, label=f"clip {k+1}")
-    ax.set_xlabel("frame step within clip")
-    ax.set_ylabel("mean |change|")
-    ax.set_title("Frame-to-frame instability")
-    ax.legend(fontsize=7, ncol=K)
-    ax.grid(alpha=.3)
+        ax[0].plot(range(1, L), feat_step[k], marker="o", ms=3, label=f"clip {k+1}")
+    ax[1].plot(seq_luma - seq_luma.mean(), lw=1)
+    ax[0].set_title("Feature instability")
+    ax[0].set_xlabel("frame step within clip")
+    ax[0].set_ylabel("mean |change|")
+    ax[0].legend(fontsize=7, ncol=2)
+    ax[0].grid(alpha=.3)
+    ax[1].set_title("Frame brightness (centred) - oscillation = flicker")
+    ax[1].set_xlabel("sampled frame")
+    ax[1].set_ylabel("luma - mean")
+    ax[1].grid(alpha=.3)
     fig.tight_layout()
     return fig
 
 
-# ---------------------------------------------------------------- handlers
-
-def run_single(video, show_frames):
+def analyse(video, show_frames):
     if not video:
-        return "upload a video first", None, None
-    if "head" not in STATE:
-        return "no checkpoint loaded", None, None
+        return "Upload a video first.", None, None
+    if not STATE["heads"]:
+        return ("No checkpoints loaded. Pick them above and press Load, "
+                "or check that runs/ contains .pt files."), None, None
     t0 = time.time()
     try:
         raw, x, n_total = read_frames(video)
     except Exception as e:
-        return f"could not read the video: {e}", None, None
+        return f"Could not read the video: {e}", None, None
+
     seq = extract(x)
-    score = score_from_seq(seq)
+    rows = []
+    for e in STATE["heads"]:
+        pred = head_score(e, seq)
+        sev = to_severity(pred, e["y_mu"], e["y_sd"])
+        rows.append((e["title"], e["desc"], pred, sev, level_from_score(sev)))
+
+    try:
+        fraw, fclip, fnote = read_frames_flicker(video)
+    except Exception:
+        fraw, fclip, fnote = raw, CLIP_LEN, "fell back to the head sampling"
+    fl = heuristic_flicker_v2(fraw, clip_len=fclip)
+    rows.append(("Brightness flicker",
+                 "Periodic luminance pumping (heuristic, no weights)",
+                 None, fl["score"], fl["level"]))
     dt = time.time() - t0
 
-    txt = (f"## score: {score:.2f}\n\n"
-           f"- frames in the file: {n_total}\n"
-           f"- sampled: {STATE['n_clips']} clips x {STATE['clip_len']} frames\n"
-           f"- elapsed: {dt:.2f} s\n"
-           f"- checkpoint: {os.path.basename(STATE['path'])}")
+    md = ["| Measurement | Prediction | Severity | What it detects |",
+          "|---|---|---|---|"]
+    for title, desc, pred, sev, lvl in rows:
+        val = f"{pred:.1f}" if pred is not None else "-"
+        md.append(f"| **{title}** | {val} | **{lvl}** ({sev:.2f}) | {desc} |")
+    md += ["",
+           f"Flicker detail: luma pumping {fl['detail']['luma_pump']:.2f} | "
+           f"periodicity {fl['detail']['periodicity']:.2f} | "
+           f"frame diff {fl['detail']['frame_diff_mean']:.2f}",
+           "",
+           f"{n_total} frames in file | heads sampled {N_CLIPS}x{CLIP_LEN} "
+           f"consecutive | flicker used {fnote} | {dt:.2f}s",
+           "",
+           "> Prediction is the raw axis output (higher = better). "
+           "Severity is 0..1 distortion strength (higher = worse)."]
+
     gallery = [raw[i] for i in range(raw.shape[0])] if show_frames else None
-    return txt, gallery, instability_plot(seq)
+    return "\n".join(md), gallery, make_plot(seq, raw, fraw, fclip)
 
 
-def run_batch(folder, progress=None):
+def batch(folder):
     import gradio as gr
     if not folder or not os.path.isdir(folder):
-        return "not a folder", None
-    if "head" not in STATE:
-        return "no checkpoint loaded", None
+        return "Not a directory.", None
     files = sorted(f for f in os.listdir(folder)
                    if f.lower().endswith((".mp4", ".avi", ".mkv", ".mov")))
     if not files:
-        return f"no videos in {folder}", None
+        return f"No videos in {folder}", None
 
-    t0, rows, failed = time.time(), [], 0
-    it = gr.Progress().tqdm(files) if progress is not False else files
-    for name in it:
+    t0, rows = time.time(), []
+    for name in gr.Progress().tqdm(files):
         stem = os.path.splitext(name)[0]
         try:
-            _, x, _ = read_frames(os.path.join(folder, name))
-            rows.append((stem, score_from_seq(extract(x))))
+            path = os.path.join(folder, name)
+            raw, x, _ = read_frames(path)
+            seq = extract(x)
+            vals = [head_score(e, seq) for e in STATE["heads"]]
+            fraw, fclip, _ = read_frames_flicker(path)
+            fl = heuristic_flicker_v2(fraw, clip_len=fclip)["score"]
+            rows.append((stem, vals, fl))
         except Exception:
-            rows.append((stem, STATE["y_mu"]))
-            failed += 1
-    elapsed = time.time() - t0
+            rows.append((stem, [float("nan")] * len(STATE["heads"]), float("nan")))
+    el = time.time() - t0
 
-    out = os.path.join(tempfile.gettempdir(), "score.txt")
+    out = os.path.join(tempfile.gettempdir(), "diagnosis.csv")
     with open(out, "w", encoding="utf-8") as fh:
-        for n, s in rows:
-            fh.write(f"{n}: {s:.1f}\n")
+        fh.write("video," + ",".join(e["title"].split()[0]
+                                     for e in STATE["heads"]) + ",flicker\n")
+        for stem, vals, fl in rows:
+            fh.write(f"{stem}," + ",".join(f"{v:.2f}" for v in vals)
+                     + f",{fl:.3f}\n")
 
-    mins = elapsed / 60
-    est100 = elapsed / len(files) * 100 / 60
-    txt = (f"scored **{len(files)}** videos in **{mins:.2f} min** "
-           f"({elapsed/len(files):.2f} s/video)\n\n"
-           f"- failed: {failed}\n"
-           f"- extrapolated to 100 videos: {est100:.2f} min\n"
-           f"- time penalty at that rate: "
-           f"{min(1.0, 0.01*max(0.0, est100-20)):.3f}")
+    est = el / len(files) * 100 / 60
+    txt = (f"Scored **{len(files)}** videos in **{el/60:.2f} min** "
+           f"({el/len(files):.2f} s/video)\n\n"
+           f"- extrapolated to 100 videos: {est:.2f} min\n"
+           f"- time penalty per the assignment formula: "
+           f"{min(1.0, 0.01*max(0.0, est-20)):.3f}")
     return txt, out
 
 
-# ---------------------------------------------------------------- ui
-
-def build_ui(ckpts, initial):
+def build_ui(runs_dir):
     import gradio as gr
-    with gr.Blocks(title="VQA - temporal consistency") as demo:
-        gr.Markdown("# Video Quality Assessment\n"
-                    "Temporal consistency scoring (course project, group 3)")
+    choices = scan(runs_dir)
 
-        with gr.Row():
-            ck = gr.Dropdown(ckpts, value=initial, label="checkpoint", scale=3)
-            load_btn = gr.Button("load", scale=1)
-        info = gr.Textbox(label="model", lines=3, interactive=False)
-        load_btn.click(load_checkpoint, [ck], [info])
+    with gr.Blocks(title="VQA diagnosis") as demo:
+        gr.Markdown(
+            "# Video quality diagnosis\n"
+            "One score answers one question. This panel runs several "
+            "measurements on the same clip, because they detect different "
+            "things.\n\n"
+            "Flicker uses a heuristic rather than a trained head: MaxWell has "
+            "no flicker axis, so nothing can be trained for it. On an "
+            "injected-flicker benchmark (n=600) the heuristic scores 0.8554 "
+            "against 0.5965 for the T-5 head - see `docs/flicker_detector.md`.")
+
+        with gr.Accordion("Models", open=True):
+            gr.Markdown(
+                "Pick a checkpoint per measurement, or clear one to switch it "
+                "off. Every head reads the same cached features, so extra "
+                "measurements cost almost nothing.")
+            dropdowns = []
+            with gr.Row():
+                for title, sub, _, desc in MEASURES:
+                    opts = choices.get(title, [])
+                    labels = [os.path.basename(p) for p in opts]
+                    dd = gr.Dropdown(
+                        choices=list(zip(labels, opts)) if opts else [],
+                        value=opts[0] if opts else None,
+                        label=f"{title}  (runs/{sub}/)",
+                        info=desc, interactive=True)
+                    dropdowns.append(dd)
+            with gr.Row():
+                load_btn = gr.Button("Load selected", variant="primary")
+                rescan_btn = gr.Button("Rescan runs/")
+            info = gr.Textbox(label="Loaded", lines=6, interactive=False,
+                              value=apply_selection(
+                                  *[c[0] if c else None
+                                    for c in (choices.get(t[0], [])
+                                              for t in MEASURES)]))
+            load_btn.click(apply_selection, dropdowns, [info])
+
+            def rescan():
+                ch = scan(runs_dir)
+                ups = []
+                for title, _, _, _ in MEASURES:
+                    opts = ch.get(title, [])
+                    labels = [os.path.basename(p) for p in opts]
+                    ups.append(gr.update(
+                        choices=list(zip(labels, opts)) if opts else [],
+                        value=opts[0] if opts else None))
+                return ups + [f"Rescanned {runs_dir}/ - press Load selected."]
+            rescan_btn.click(rescan, None, dropdowns + [info])
 
         with gr.Tab("Single video"):
             with gr.Row():
                 with gr.Column():
-                    vid = gr.Video(label="video")
+                    vid = gr.Video(label="Video")
                     show = gr.Checkbox(True, label="show sampled frames")
-                    btn = gr.Button("score", variant="primary")
+                    btn = gr.Button("Analyse", variant="primary")
                 with gr.Column():
                     out = gr.Markdown()
-            plot = gr.Plot(label="frame-to-frame instability")
-            gal = gr.Gallery(label="sampled frames", columns=8, height=200)
-            btn.click(run_single, [vid, show], [out, gal, plot])
+            plot = gr.Plot(label="Temporal signals")
+            gal = gr.Gallery(label="Sampled frames", columns=8, height=200)
+            btn.click(analyse, [vid, show], [out, gal, plot])
 
         with gr.Tab("Batch"):
-            gr.Markdown("Score every video in a folder and write `score.txt`.")
-            folder = gr.Textbox(label="folder with videos",
+            gr.Markdown("Run every measurement over a folder and export a CSV.")
+            folder = gr.Textbox(label="Folder with videos",
                                 placeholder="/home/peter/trkv/data")
-            bbtn = gr.Button("run", variant="primary")
+            bbtn = gr.Button("Run", variant="primary")
             bout = gr.Markdown()
-            bfile = gr.File(label="score.txt")
-            bbtn.click(run_batch, [folder], [bout, bfile])
-
+            bfile = gr.File(label="diagnosis.csv")
+            bbtn.click(batch, [folder], [bout, bfile])
     return demo
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--ckpt", default="", help="checkpoint to preload")
-    ap.add_argument("--runs", default="runs", help="where to look for *.pt")
+    ap.add_argument("--runs", default="runs")
     ap.add_argument("--port", type=int, default=7860)
-    ap.add_argument("--share", action="store_true", help="public gradio link")
+    ap.add_argument("--share", action="store_true")
     args = ap.parse_args()
-
-    ckpts = find_checkpoints(args.runs)
-    if args.ckpt and args.ckpt not in ckpts:
-        ckpts.insert(0, args.ckpt)
-    if not ckpts:
-        raise SystemExit(f"no *.pt found under {args.runs}/ - train a head first")
-
-    initial = args.ckpt or ckpts[0]
-    print(load_checkpoint(initial))
-
-    build_ui(ckpts, initial).launch(
-        server_name="0.0.0.0", server_port=args.port, share=args.share)
+    build_ui(args.runs).launch(server_name="0.0.0.0", server_port=args.port,
+                               share=args.share)
 
 
 if __name__ == "__main__":

@@ -67,6 +67,8 @@ def main():
     p = argparse.ArgumentParser(description="CAMP-VQA 批量零样本评估")
     p.add_argument("--videos-dir", required=True)
     p.add_argument("--labels", default="", help="标注文件（可选，格式 name: score）")
+    p.add_argument("--only-labels", default="",
+                   help="仅评估该标注文件中列出的视频（空=目录内全部视频）")
     p.add_argument("--max-n", type=int, default=0, help="最多评估的视频数（0=全部）")
     p.add_argument("--out", default="campvqa_scores.txt")
     p.add_argument("--model-path", default="../model/lsvq_train_camp-vqa_Mlp_byrmse_trained_model_kfold.pth",
@@ -83,6 +85,14 @@ def main():
     # ---- 收集视频列表与元数据 ----
     all_names = sorted(n for n in os.listdir(args.videos_dir)
                        if n.lower().endswith((".mp4", ".avi", ".mkv", ".mov")))
+    if args.only_labels:
+        keep = set()
+        for line in open(args.only_labels, encoding="utf-8"):
+            parts = line.strip().rsplit(":", 1)
+            if len(parts) == 2:
+                keep.add(parts[0].strip().replace(".mp4", ""))
+        all_names = [n for n in all_names
+                     if os.path.splitext(n)[0] in keep]
     if args.max_n:
         all_names = all_names[: args.max_n]
     print(f"评估视频数: {len(all_names)}")
