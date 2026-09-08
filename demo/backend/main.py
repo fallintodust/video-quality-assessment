@@ -1,5 +1,6 @@
 # demo/backend/main.py
 """NR-VQA 演示后端：多模型选择打分 + 失真问题反馈 + 任务书格式 score.txt。"""
+import json
 import os
 import sys
 import shutil
@@ -209,6 +210,107 @@ async def score_history():
         return {"status": "success", "history": [
             {"video": n, "model_id": m, "score": s}
             for n, m, s in _score_history]}
+
+# ---------------------------------------------------------------- 多维诊断
+# 一个分数只能回答一个问题。以下三个接口同时给出四项回归测量
+# （整体质量 / 抖动 / 卡顿 / 纯时域）加启发式闪烁检测。
+# 四个回归头共用同一次特征提取，额外维度几乎不增加耗时。
+
+from . import multiaxis   # noqa: E402
+
+
+@app.get("/api/diagnose/axes")
+def diagnose_axes():
+    """四个测量维度及各自可选的权重变体（供前端渲染选择器）。
+
+    抖动维度提供 4 个变体（r50 / 双分支 / 仅 ViT / 仅 mean），
+    用于现场演示分支与时间聚合的消融结果。
+    """
+    return {"status": "success", "axes": multiaxis.available(),
+            "extras": multiaxis.extra_detectors()}
+
+
+def _parse_variants(raw: str):
+    """variants 参数：JSON 形式的 {轴 id: 权重文件名}，留空则各轴用默认权重。"""
+    if not raw:
+        return {}
+    try:
+        d = json.loads(raw)
+        return {k: v for k, v in d.items() if v}
+    except Exception:
+        raise HTTPException(400, detail="variants 需为 JSON 对象")
+
+
+def _parse_extras(raw: str):
+    """extras 参数：逗号分隔的检测器名称，如 "噪点,模糊"。"""
+    return [x.strip() for x in raw.split(",") if x.strip()] if raw else []
+
+
+def _record_score(video_name: str, model_id: str, score: float) -> str:
+    """写入 score.txt 历史；同一文件用不同模型评估会各留一条记录，互不覆盖。"""
+    with _lock:
+        n = len(_score_history) + 1
+        _score_history.append((f"video{n}", model_id, score))
+    return f"video{n}: {round(score, 2)}"
+
+
+@app.post("/api/diagnose")
+def diagnose_upload(file: UploadFile = File(...),
+                    variants: str = None,
+                    with_visuals: bool = False,
+                    extras: str = None):
+    """多维诊断：上传视频 -> 四项回归测量 + 闪烁检测。
+
+    variants：JSON，如 {"shake": "best_all_mean.pt"}，留空各轴用默认权重
+    with_visuals：额外返回抽取的帧与两张图（base64），约 400 KB，批量时建议关闭
+    """
+    tmp_path = _save_tmp(file)
+    keep = False
+    try:
+        result = multiaxis.analyse(tmp_path, _parse_variants(variants),
+                                   with_visuals, _parse_extras(extras))
+        ov = result["measurements"].get("overall")
+        if ov:
+            result["score_txt_line"] = _record_score(
+                file.filename, "multiaxis", ov["prediction"])
+        result["status"] = "success"
+        result["video_id"] = _retain_video(tmp_path, file.filename)
+        keep = bool(result["video_id"])
+        return result
+    except FileNotFoundError as e:
+        raise HTTPException(503, detail=f"权重缺失：{e}")
+    except Exception as e:
+        raise HTTPException(500, detail=f"诊断失败：{e}")
+    finally:
+        # _retain_video 成功时已移走文件；失败或异常时清理残留
+        if not keep and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
+
+@app.post("/api/diagnose/{video_id}")
+def diagnose_again(video_id: str, variants: str = None,
+                   with_visuals: bool = False, extras: str = None):
+    """换权重重新诊断：复用服务端暂存视频，无需重新上传。"""
+    v = _parse_variants(variants)
+    with _lock:
+        info = _video_store.get(video_id)
+        if info is None:
+            raise HTTPException(404, detail="暂存视频不存在或已过期，请重新上传")
+        info["expires"] = time.time() + VIDEO_TTL_SECONDS
+    try:
+        result = multiaxis.analyse(info["path"], v, with_visuals,
+                                   _parse_extras(extras))
+        ov = result["measurements"].get("overall")
+        if ov:
+            result["score_txt_line"] = _record_score(
+                info["name"], "multiaxis", ov["prediction"])
+    except FileNotFoundError as e:
+        raise HTTPException(503, detail=f"权重缺失：{e}")
+    except Exception as e:
+        raise HTTPException(500, detail=f"诊断失败：{e}")
+    result["status"] = "success"
+    result["video_id"] = video_id
+    return result
 
 
 if __name__ == "__main__":

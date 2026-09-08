@@ -130,6 +130,31 @@ class DoverPlusPlusPredictor(_DoverBase):
         super().__init__(ckpt, fuse=False, scale100=False)
 
 
+# ---------------------------------------------------------------- 多维诊断
+class MultiAxisPredictor(_BasePredictor):
+    """冻结骨干 + 四个回归头（整体质量 / 抖动 / 卡顿 / 纯时域）+ 启发式闪烁。
+
+    与其它模型的区别：一次特征提取同时给出四项测量，而不是单一分数。
+    registry 接口要求 predict() 返回 float，这里返回整体质量轴的预测值，
+    使其在原有打分流程（score.txt 等）中与其它模型同口径可比；
+    完整的四维结果走 /api/diagnose 接口。
+    """
+
+    def __init__(self, ckpt=None):
+        sys.path.insert(0, str(Path(__file__).parent))
+        import multiaxis
+        self._m = multiaxis
+        # 提前建好特征提取器，避免首次请求时才加载骨干
+        self._m._get_extractor()
+
+    def predict(self, video_path):
+        r = self._m.analyse(video_path)
+        overall = r["measurements"].get("overall")
+        if overall is None:
+            raise RuntimeError("整体质量轴权重缺失（runs/o/）")
+        return float(overall["prediction"])
+
+
 # ---------------------------------------------------------------- 注册表
 def _find_doverpp_ckpt():
     """自动找 DOVER++ 微调产物（s 分支完整模型 best > 其它 latest > 不存在）。"""
@@ -183,6 +208,23 @@ MODELS = [
         "available": _find_doverpp_ckpt() is not None,
         "builder": lambda ckpt: DoverPlusPlusPredictor(ckpt),
     },
+    {
+        "id": "multiaxis",
+        "name": "多维诊断（冻结骨干 + 四个回归头）",
+        "desc": ("同一次特征提取给出四项测量：整体质量（O 轴）/ 抖动（T-5）/ "
+                 "卡顿（T-8）/ 纯时域残差（tcons），外加启发式闪烁检测。"
+                 "骨干冻结、只训练回归头，单次实验 3 分钟；"
+                 "整体质量轴 SROCC=0.6950 / PLCC=0.7066。"
+                 "抖动维度提供 4 个权重变体，可现场对比分支与时间聚合的消融"),
+        "scale": "各轴不同（详见诊断结果）",
+        # get_model 会检查 ckpt 是否非空，这里给整体质量轴的权重路径：
+        # 它既是 predict() 返回的那一轴，也代表这套方案是否可用
+        "ckpt": str(PROJECT_ROOT / "runs" / "o" / "best_all_mean+std+diff.pt"),
+        "available": (PROJECT_ROOT / "runs" / "o" /
+                      "best_all_mean+std+diff.pt").exists(),
+        "multiaxis": True,
+        "builder": lambda ckpt: MultiAxisPredictor(ckpt),
+    },
 ]
 
 _instances = {}
@@ -211,6 +253,7 @@ def model_info_list():
     return [
         {"id": m["id"], "name": m["name"], "desc": m["desc"],
          "scale": m["scale"], "available": m["available"],
-         "loaded": m["id"] in _instances}
+         "loaded": m["id"] in _instances,
+         "multiaxis": bool(m.get("multiaxis"))}
         for m in MODELS
     ]

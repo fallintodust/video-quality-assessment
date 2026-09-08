@@ -38,14 +38,28 @@
 
             <!-- 上传区域 -->
             <section class="upload-section">
-                <div class="drop-zone" id="dropZone">
-                    <i class="fas fa-cloud-upload-alt fa-4x"></i>
-                    <p class="drop-text">拖拽视频到此处，或点击上传</p>
-                    <p class="drop-hint">支持 MP4, AVI, MOV, MKV 等格式</p>
-                    <input type="file" id="fileInput" accept="video/*" multiple>
-                    <button class="btn-primary" onclick="document.getElementById('fileInput').click()">
-                        <i class="fas fa-plus"></i> 选择视频
-                    </button>
+                <!-- 未选文件时上传区居中；选中后左侧显示预览、右侧收窄为上传区 -->
+                <div class="upload-layout" id="uploadLayout">
+                    <div class="preview-pane" id="previewPane">
+                        <div class="preview-head">
+                            <span class="preview-name" id="previewName"></span>
+                            <button class="preview-close" onclick="clearPreview()" title="关闭预览">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        <video id="previewVideo" controls muted playsinline></video>
+                        <div class="preview-meta" id="previewMeta"></div>
+                    </div>
+                    <div class="drop-zone" id="dropZone">
+                        <i class="fas fa-cloud-upload-alt fa-4x"></i>
+                        <p class="drop-text">拖拽视频到此处，或点击上传</p>
+                        <p class="drop-hint">支持 MP4, AVI, MOV, MKV 等格式</p>
+                        <input type="file" id="fileInput" accept="video/*" multiple>
+                        <button class="btn-primary" onclick="document.getElementById('fileInput').click()">
+                            <i class="fas fa-plus"></i>
+                            <span>选择视频</span>
+                        </button>
+                    </div>
                 </div>
             </section>
 
