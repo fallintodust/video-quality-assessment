@@ -269,6 +269,8 @@ def diagnose_upload(file: UploadFile = File(...),
     try:
         result = multiaxis.analyse(tmp_path, _parse_variants(variants),
                                    with_visuals, _parse_extras(extras))
+        # analyse 看到的是临时文件名，前端要显示用户上传时的原名
+        result["video"] = file.filename
         ov = result["measurements"].get("overall")
         if ov:
             result["score_txt_line"] = _record_score(
@@ -300,6 +302,7 @@ def diagnose_again(video_id: str, variants: str = None,
     try:
         result = multiaxis.analyse(info["path"], v, with_visuals,
                                    _parse_extras(extras))
+        result["video"] = info["name"]
         ov = result["measurements"].get("overall")
         if ov:
             result["score_txt_line"] = _record_score(

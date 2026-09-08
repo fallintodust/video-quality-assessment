@@ -110,6 +110,24 @@
                 <pre id="scoreTxtContent" class="scoretxt-pre">（评估后此处显示任务书格式的 score.txt 内容）</pre>
             </section>
 
+            <!-- 排行榜：按分数动态排序，可按模型筛选 -->
+            <section class="leader-section">
+                <div class="section-header">
+                    <h3><i class="fas fa-trophy"></i> 视频排名</h3>
+                    <div class="section-actions">
+                        <select id="leaderModel" onchange="renderLeaderboard()">
+                            <option value="all">全部模型</option>
+                        </select>
+                        <button class="btn-secondary" onclick="clearLeaderboard()">
+                            <i class="fas fa-eraser"></i> 清空排名
+                        </button>
+                    </div>
+                </div>
+                <div id="leaderboard">
+                    <div class="empty-hint">评估后此处按分数排名</div>
+                </div>
+            </section>
+
             <!-- 模型信息 -->
             <section class="info-section">
                 <details>

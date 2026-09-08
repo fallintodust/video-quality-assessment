@@ -1163,3 +1163,71 @@ footer {
 /* --- 附加检测（组员的噪点 / 模糊）勾选行 --- */
 .extras-row { border-top: 1px solid #e2e8f0; }
 .extras-row .variant-item input { accent-color: #667eea; }
+
+/* --- 视频排名 --- */
+.leader-section { margin: 24px 0; }
+
+.leader-section .section-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.leader-section .section-actions > * {
+    height: 40px;
+    min-width: 150px;
+    margin: 0;
+    box-sizing: border-box;
+    font-size: 0.9rem;
+    border-radius: 8px;
+}
+
+.leader-section .section-actions select {
+    padding: 0 12px;
+    background: #fff;
+    color: #2d3748;
+    border: 1px solid #cbd5e0;
+}
+
+.leader-section .section-actions button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 0 16px;
+}
+
+#leaderboard {
+    margin-top: 14px;
+    padding: 12px 16px;
+    background: #f7fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+}
+
+.leader-table td, .leader-table th { padding: 8px 10px 8px 0; }
+
+.leader-rank {
+    width: 48px;
+    font-weight: 700;
+    color: #a0aec0;
+    font-variant-numeric: tabular-nums;
+}
+
+.leader-top .leader-rank { color: #667eea; }
+.leader-top .mx-name { color: #667eea; }
+
+.leader-model { font-size: 12px; color: #4a5568; }
+.leader-scale { font-size: 12px; color: #a0aec0; white-space: nowrap; }
+
+.leader-warn {
+    margin-bottom: 10px;
+    padding: 8px 10px;
+    font-size: 12px;
+    color: #4a5568;
+    background: #edf2f7;
+    border-left: 3px solid #ed8936;
+    border-radius: 4px;
+}
+
+.leader-warn i { color: #ed8936; margin-right: 6px; }
