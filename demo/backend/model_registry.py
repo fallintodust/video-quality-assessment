@@ -130,6 +130,35 @@ class DoverPlusPlusPredictor(_DoverBase):
         super().__init__(ckpt, fuse=False, scale100=False)
 
 
+# ---------------------------------------------------------------- FAST-VQA
+class FastVQAFamilyPredictor(_BasePredictor):
+    """FAST-VQA / FasterVQA（ECCV2022，LSVQ 预训练零样本）。
+
+    与 MaxWell 同一作者组，骨干为 Video Swin-T，权重仅 127 MB
+    （对比 CAMP-VQA 的 16 GB），4 GB 显卡即可运行。
+    909 验证集：FAST-VQA-B OBJ 1.4213（7.47 s/视频），
+    FasterVQA OBJ 1.3483（1.56 s/视频，计算量仅 1/4）。
+    详见 docs/fastvqa_comparison.md
+    """
+
+    def __init__(self, variant):
+        sys.path.insert(0, str(Path(__file__).parent))
+        from fastvqa_predictor import FastVQAPredictor
+        self._p = FastVQAPredictor(variant)
+
+    def predict(self, video_path):
+        return self._p.predict(video_path)
+
+
+def _fastvqa_available(variant):
+    try:
+        sys.path.insert(0, str(Path(__file__).parent))
+        from fastvqa_predictor import is_available
+        return is_available(variant)
+    except Exception:
+        return False
+
+
 # ---------------------------------------------------------------- 多维诊断
 class MultiAxisPredictor(_BasePredictor):
     """冻结骨干 + 四个回归头（整体质量 / 抖动 / 卡顿 / 纯时域）+ 启发式闪烁。
@@ -224,6 +253,29 @@ MODELS = [
                       "best_all_mean+std+diff.pt").exists(),
         "multiaxis": True,
         "builder": lambda ckpt: MultiAxisPredictor(ckpt),
+    },
+    {
+        "id": "fastvqa",
+        "name": "FAST-VQA（ECCV2022 零样本）",
+        "desc": ("与 MaxWell 同作者组，LSVQ 预训练零样本，骨干 Video Swin-T，"
+                 "权重 127 MB。909 验证集 SROCC=0.7102 / PLCC=0.7111，"
+                 "OBJ 1.4213，是本项目对照中最好的零样本模型；"
+                 "计算量 279 G MACs，7.47 s/视频"),
+        "scale": "0~100",
+        "ckpt": "pretrained_weights/FAST_VQA_B_1_4.pth",
+        "available": _fastvqa_available("FAST-VQA"),
+        "builder": lambda ckpt: FastVQAFamilyPredictor("FAST-VQA"),
+    },
+    {
+        "id": "fastervqa",
+        "name": "FasterVQA（3D 片段采样）",
+        "desc": ("FAST-VQA 的轻量版：计算量 69 G MACs（1/4），速度快 4.8 倍，"
+                 "909 验证集 OBJ 1.3483，仅低 0.073。"
+                 "对照任务书 300 G FLOPs 限制时有 4 倍余量"),
+        "scale": "0~100",
+        "ckpt": "pretrained_weights/FAST_VQA_3D_1_1.pth",
+        "available": _fastvqa_available("FasterVQA"),
+        "builder": lambda ckpt: FastVQAFamilyPredictor("FasterVQA"),
     },
 ]
 
