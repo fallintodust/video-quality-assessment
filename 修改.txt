@@ -1,6 +1,57 @@
-模糊检测模块 (核心任务)
-   - 文件：`vqa/diagnosis.py`
-   - 新增 `blur_detector` 函数，基于拉普拉斯方差 (Laplacian Variance) 检测视频模糊程度。
-   - 将 `BLUR_DETECTOR` 注册至系统，实现 `diagnose.py` 的统一调用。
-   - 输出格式：`{"score": 0~1, "level": "无/轻/中/重", "detail": {...}}`。
-输出保存在runs/diagnose文件夹下
+1. 修改的文件
+文件	修改内容
+vqa/diagnosis.py	新增 blur_detector 函数，注册 BLUR_DETECTOR
+2. 新增函数：blur_detector
+功能：检测视频的模糊程度
+
+算法：拉普拉斯方差（Laplacian Variance）
+
+清晰图像：边缘锐利 → 拉普拉斯响应方差大
+
+模糊图像：边缘平滑 → 拉普拉斯响应方差小
+
+输入：frames_rgb — [T, H, W, 3] 格式的 RGB 帧序列
+
+输出格式：
+
+python
+{
+    "score": 0.0~1.0,    # 模糊程度，0=清晰，1=最模糊
+    "level": "无/轻/中/重",  # 分级
+    "detail": {           # 附加信息
+        "laplacian_var_mean": float,   # 帧间拉普拉斯方差均值
+        "laplacian_var_std": float,    # 帧间方差标准差
+        "per_frame": [float, ...]      # 每帧的拉普拉斯方差
+    }
+}
+阈值与分级：
+
+拉普拉斯方差	等级
+> 150	无
+80 ~ 150	轻
+30 ~ 80	中
+< 30	重
+3. 注册到诊断系统
+python
+# 在 vqa/diagnosis.py 中
+BLUR_DETECTOR = blur_detector
+register_detector("模糊", BLUR_DETECTOR)
+4. 运行与输出
+运行诊断：
+
+bash
+python scripts/diagnose.py --videos 视频目录 --out-dir runs/diagnose
+输出文件：
+
+runs/diagnose/report.json — JSON 格式诊断报告
+
+runs/diagnose/report.txt — 文本格式诊断报告
+训练的模型在runs文件夹下面
+create mode 100644 runs/baseline/extractor.pt
+ create mode 100644 runs/baseline/extractor_best.pt
+ create mode 100644 runs/baseline/head.pt
+ create mode 100644 runs/baseline/head_best.pt
+ create mode 100644 runs/baseline/meta.json
+ create mode 100644 runs/baseline/meta_best.json
+ create mode 100644 runs/baseline/model.pt
+ create mode 100644 runs/baseline/model_best.pt
