@@ -29,3 +29,4 @@ __pycache__/
 .dl_test/
 demo/uvicorn.log
 demo/kill_uvicorn.ps1
+pretrained_weights/
