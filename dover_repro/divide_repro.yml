@@ -1,11 +1,11 @@
 name: DOVER
-num_epochs: 8
-l_num_epochs: 4
-warmup_epochs: 2.5
+num_epochs: 3
+l_num_epochs: 0
+warmup_epochs: 1.0
 ema: true
 save_model: true
 batch_size: 4
-num_workers: 6
+num_workers: 2
 split_seed: -1
 
 wandb:
@@ -84,4 +84,4 @@ optimizer:
     backbone_lr_mult: !!float 1e-1
     wd: 0.05
 
-test_load_path: ./pretrained_weights/DOVER.pth
+test_load_path: ./pretrained_weights/resume.pth
