@@ -68,7 +68,7 @@ def main():
     print("\n[3/4] 启动后端服务...")
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "demo.backend.main:app",
-         "--host", "127.0.0.1", "--port", str(PORT)],
+         "--host", "0.0.0.0", "--port", str(PORT)],
         cwd=str(ROOT),
     )
 
