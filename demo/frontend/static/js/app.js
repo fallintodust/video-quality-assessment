@@ -22,10 +22,21 @@ function _keepFile(file) {
     return id;
 }
 
-function _rescoreActionsHtml(cardId) {
+function _rescoreActionsHtml(cardId, currentModelId) {
     if (!cardId) return '';
+    // 其他可用模型：一键换模型快打（免重传，服务端暂存失效自动回退重传）
+    const others = models.filter(m => m.available && m.id !== currentModelId);
+    const quickBtns = others.map(m => `
+        <button type="button" class="btn-quick" onclick="rescoreWithModel('${cardId}', '${m.id}')"
+                title="用「${m.name}」重新评估，无需重新上传">
+            <i class="fas fa-exchange-alt"></i> ${m.name}
+        </button>`).join('');
     return `
         <div class="card-actions">
+            <div class="quick-row">
+                <span class="quick-label"><i class="fas fa-sync-alt"></i> 换模型再打分（免重传）</span>
+                ${quickBtns}
+            </div>
             <button type="button" class="btn-rescore" onclick="rescoreCard('${cardId}')"
                     title="使用当前选中的模型重新打分，无需重新上传">
                 <i class="fas fa-redo-alt"></i> 重新打分
@@ -588,7 +599,9 @@ function updateResultCard(card, data, error) {
     if (card._hintTimer) { clearInterval(card._hintTimer); card._hintTimer = null; }
     card.className = 'result-card';
     const cardId = card.dataset.cardId || '';
-    const actionsHtml = _rescoreActionsHtml(cardId);
+    if (data && data.model_id) card._modelId = data.model_id;
+    const curModel = (data && data.model_id) || card._modelId || '';
+    const actionsHtml = _rescoreActionsHtml(cardId, curModel);
     if (error) {
         card.classList.add('error');
         card.querySelector('.result-status').innerHTML =
@@ -650,15 +663,21 @@ function updateResultCard(card, data, error) {
 
 // ============ 重新打分（切换模型后无需重新上传） ============
 function rescoreCard(cardId) {
+    if (!selectedModel || !selectedModel.available) { alert('请先选择可用的模型'); return; }
+    rescoreWithModel(cardId, selectedModel.id);
+}
+
+// 指定模型重新打分：优先免重传（服务端暂存 video_id），失效自动回退重传
+function rescoreWithModel(cardId, modelId) {
     const card = document.querySelector(`[data-card-id="${cardId}"]`);
     const file = _cardFiles[cardId];
     if (!card) return;
     if (card._busy) return;                        // 防止同一卡片重复点击
     if (isEvaluating) { alert('正在批量评估，请稍候再重新打分'); return; }
     if (!file) { alert('该视频数据已释放，请重新上传后再打分'); return; }
-    if (!selectedModel || !selectedModel.available) { alert('请先选择可用的模型'); return; }
+    const model = models.find(m => m.id === modelId && m.available);
+    if (!model) { alert('目标模型不可用'); return; }
 
-    const model = selectedModel;
     card._busy = true;
     card.classList.remove('completed', 'error');
     card.classList.add('processing');

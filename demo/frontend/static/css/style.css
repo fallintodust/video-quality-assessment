@@ -656,6 +656,42 @@ footer {
     transform: none;
     box-shadow: none;
 }
+.quick-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+.quick-label {
+    font-size: .72rem;
+    font-weight: 600;
+    color: #718096;
+    margin-right: 2px;
+}
+.btn-quick {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 9px;
+    font-size: .7rem;
+    font-weight: 600;
+    color: #4a6a8a;
+    background: #f4f8fc;
+    border: 1px solid #b8cbe0;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: all .15s;
+}
+.btn-quick:hover {
+    background: #667eea;
+    border-color: #667eea;
+    color: #fff;
+}
+.btn-quick:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+}
 
 /* ============================================================
    多维诊断（整体质量 / 抖动 / 卡顿 / 纯时域 / 闪烁）

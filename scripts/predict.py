@@ -71,7 +71,9 @@ def main():
 
     with open(args.out, "w", encoding="utf-8") as f:
         for n in sorted(scores, key=natural_key):
-            f.write(f"{n}: {scores[n]:.{args.precision}f}\n")
+            # 任务书格式：`videoN: 分数`（去掉扩展名，与标注文件同构）
+            base = os.path.splitext(n)[0]
+            f.write(f"{base}: {scores[n]:.{args.precision}f}\n")
 
     # 耗时统计（任务书：100 视频超 20 分钟开始扣分）
     per_video = elapsed / len(names)
