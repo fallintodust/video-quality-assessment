@@ -14,6 +14,12 @@ weights/
 *.pdf
 pdf_text*.txt
 
+# 组员交换文件与答辩材料（不入库）
+*.rar
+*.pptx
+*.doc
+.search_tmp/
+
 # 推理产物
 score.txt
 
