@@ -1,6 +1,20 @@
-import decord
-from decord import VideoReader
-from decord import cpu, gpu
+try:
+    import decord
+    from decord import VideoReader
+    from decord import cpu, gpu
+    decord.bridge.set_bridge("torch")
+except ImportError:
+    # Windows 无官方 decord 轮子：demo 推理不经过本 Dataset 的解码路径，
+    # 占位只为 import 链不断。
+    class VideoReader:
+        pass
+
+    def cpu(i=0):
+        return None
+
+    def gpu(i=0):
+        return None
+
 import glob
 import os.path as osp
 import numpy as np
@@ -16,8 +30,6 @@ import copy
 import skvideo.io
 
 random.seed(42)
-
-decord.bridge.set_bridge("torch")
 
 
     

@@ -5,7 +5,12 @@ from torch import nn
 from timm.models.layers import trunc_normal_
 from torch.utils.checkpoint import checkpoint_sequential
 
-import clip
+try:
+    import clip
+except ImportError:
+    # X-CLIP 仅用于 DiViDe 融合变体，demo 的 FAST-VQA/FasterVQA 推理不经过；
+    # 占位只为 import 链不断。
+    clip = None
 
 import numpy as np
 
@@ -17,7 +22,6 @@ import torch.nn.functional as F
 from einops import rearrange
 from torch.utils.checkpoint import checkpoint_sequential
 import math
-import clip
 
 def drop_path(x, drop_prob: float = 0., training: bool = False):
     """Drop paths (Stochastic Depth) per sample (when applied in main path of residual blocks).

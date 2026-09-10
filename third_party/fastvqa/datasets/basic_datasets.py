@@ -1,6 +1,20 @@
-import decord
-from decord import VideoReader
-from decord import cpu, gpu
+try:
+    import decord
+    from decord import VideoReader
+    from decord import cpu, gpu
+    decord.bridge.set_bridge("torch")
+except ImportError:
+    # Windows 无官方 decord 轮子：demo 推理不经过本 Dataset 的解码路径
+    # （实际解码在 fastvqa_predictor 的 OpenCV 回退），占位只为 import 链不断。
+    class VideoReader:
+        pass
+
+    def cpu(i=0):
+        return None
+
+    def gpu(i=0):
+        return None
+
 import os.path as osp
 import numpy as np
 import torch, torchvision
@@ -11,8 +25,6 @@ import skvideo.io
 import random
 
 random.seed(42)
-
-decord.bridge.set_bridge("torch")
 
 
 def get_spatial_fragments(

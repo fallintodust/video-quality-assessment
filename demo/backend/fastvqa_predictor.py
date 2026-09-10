@@ -130,8 +130,29 @@ class FastVQAPredictor:
         return float(1 / (1 + np.exp(-(score - mean) / std)))
 
     def predict(self, video_path):
-        import decord
-        vr = decord.VideoReader(str(video_path))
+        try:
+            import decord
+            vr = decord.VideoReader(str(video_path))
+        except ImportError:
+            # decord 无 Windows 轮子：OpenCV 逐帧解码回退（索引语义与 decord 一致）
+            import cv2
+
+            class _CVVideoReader:
+                def __init__(self, path):
+                    self._cap = cv2.VideoCapture(str(path))
+                    self._n = int(self._cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+                def __len__(self):
+                    return self._n
+
+                def __getitem__(self, i):
+                    self._cap.set(cv2.CAP_PROP_POS_FRAMES, int(i))
+                    ok, fr = self._cap.read()
+                    if not ok:
+                        fr = np.zeros((224, 224, 3), np.uint8)
+                    return torch.from_numpy(cv2.cvtColor(fr, cv2.COLOR_BGR2RGB))
+
+            vr = _CVVideoReader(video_path)
         vsamples = {}
         for stype, (sampler, sargs) in self.samplers.items():
             frames = sampler(len(vr))
