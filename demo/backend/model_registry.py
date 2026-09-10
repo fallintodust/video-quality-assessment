@@ -110,24 +110,27 @@ class _DoverBase(_BasePredictor):
             scores = self.model(video, reduce_scores=False)
             scores = [np.mean(x.float().cpu().numpy()) for x in scores]
         if self.fuse:
-            # 官方融合：technical/aesthetic 标定后加权（0~1）x100
+            # 官方融合：technical/aesthetic 标定后加权得 0~1 概率
+            # → 统一量纲 1~5 MOS（线性映射，排序不变）
             t, a = ((scores[1] - 0.1107) / 0.07355,
                     (scores[0] + 0.08285) / 0.03774)
             x = t * 0.6104 + a * 0.3896
             s = 1 / (1 + np.exp(-x))
-            return float(s * 100.0) if self.scale100 else float(s)
-        # 微调模型：两分支分数之和（训练/验证同口径）
-        return float(sum(scores))
+            return float(1.0 + s * 4.0)
+        # 微调模型：两分支分数之和 → 线性校准到 1~5 MOS
+        # （40 个验证视频小样本拟合：mos = 3.4613*raw + 3.4043，PLCC=0.8235）
+        raw = float(sum(scores))
+        return float(np.clip(3.4613 * raw + 3.4043, 1.0, 5.0))
 
 
 class DoverPredictor(_DoverBase):
     def __init__(self, ckpt):
-        super().__init__(ckpt, fuse=True, scale100=True)
+        super().__init__(ckpt, fuse=True)
 
 
 class DoverPlusPlusPredictor(_DoverBase):
     def __init__(self, ckpt):
-        super().__init__(ckpt, fuse=False, scale100=False)
+        super().__init__(ckpt, fuse=False)
 
 
 # ---------------------------------------------------------------- FAST-VQA
@@ -147,7 +150,8 @@ class FastVQAFamilyPredictor(_BasePredictor):
         self._p = FastVQAPredictor(variant)
 
     def predict(self, video_path):
-        return self._p.predict(video_path)
+        s = self._p.predict(video_path)   # 原始 0~100（LSVQ 量纲）
+        return float(1.0 + s / 100.0 * 4.0)   # 统一量纲 1~5 MOS（线性，排序不变）
 
 
 def _fastvqa_available(variant):
@@ -221,7 +225,7 @@ MODELS = [
         "desc": ("双视角评估器：技术分支 Video Swin GRPB（7x7 碎片采样，对闪烁/冻结"
                  "等时域失真敏感）+ 美学分支 ConvNeXt；LSVQ 预训练权重，未使用本课程"
                  "数据；零样本 SROCC=0.7110 / PLCC=0.7053"),
-        "scale": "0~100",
+        "scale": "1~5",
         "ckpt": str(PROJECT_ROOT / "dover_repro" / "pretrained_weights" / "DOVER.pth"),
         "available": (PROJECT_ROOT / "dover_repro" / "pretrained_weights" / "DOVER.pth").exists(),
         "builder": lambda ckpt: DoverPredictor(ckpt),
@@ -232,7 +236,7 @@ MODELS = [
         "desc": ("DOVER 架构 + divide_head 双标注头，DIVIDE-MaxWell 全监督微调"
                  "（4 个线性 epoch，头部微调，验证集 SROCC=0.7854 / PLCC=0.7905；"
                  "端到端阶段待续，官方全流程报告 SROCC=0.8071 / PLCC=0.8126）"),
-        "scale": "1~5（两分支和）",
+        "scale": "1~5",
         "ckpt": str(_find_doverpp_ckpt()) if _find_doverpp_ckpt() else "",
         "available": _find_doverpp_ckpt() is not None,
         "builder": lambda ckpt: DoverPlusPlusPredictor(ckpt),
@@ -261,7 +265,7 @@ MODELS = [
                  "权重 127 MB。909 验证集 SROCC=0.7102 / PLCC=0.7111，"
                  "OBJ 1.4213，是本项目对照中最好的零样本模型；"
                  "计算量 279 G MACs，7.47 s/视频"),
-        "scale": "0~100",
+        "scale": "1~5",
         "ckpt": "pretrained_weights/FAST_VQA_B_1_4.pth",
         "available": _fastvqa_available("FAST-VQA"),
         "builder": lambda ckpt: FastVQAFamilyPredictor("FAST-VQA"),
@@ -272,7 +276,7 @@ MODELS = [
         "desc": ("FAST-VQA 的轻量版：计算量 69 G MACs（1/4），速度快 4.8 倍，"
                  "909 验证集 OBJ 1.3483，仅低 0.073。"
                  "对照任务书 300 G FLOPs 限制时有 4 倍余量"),
-        "scale": "0~100",
+        "scale": "1~5",
         "ckpt": "pretrained_weights/FAST_VQA_3D_1_1.pth",
         "available": _fastvqa_available("FasterVQA"),
         "builder": lambda ckpt: FastVQAFamilyPredictor("FasterVQA"),
