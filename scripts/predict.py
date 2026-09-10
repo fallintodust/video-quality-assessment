@@ -71,9 +71,12 @@ def main():
 
     with open(args.out, "w", encoding="utf-8") as f:
         for n in sorted(scores, key=natural_key):
-            # 任务书格式：`videoN: 分数`（去掉扩展名，与标注文件同构）
+            # 任务书格式：`videoN: 分数`（无扩展名），量纲 0~100（任务书示例
+            # video1: 9.0 / video2: 82.0）。模型输出 1~5 MOS → 线性转 0~100，
+            # 排序不变（SROCC/PLCC 对线性变换不敏感）。
             base = os.path.splitext(n)[0]
-            f.write(f"{base}: {scores[n]:.{args.precision}f}\n")
+            s100 = (scores[n] - 1.0) * 25.0
+            f.write(f"{base}: {s100:.{args.precision}f}\n")
 
     # 耗时统计（任务书：100 视频超 20 分钟开始扣分）
     per_video = elapsed / len(names)

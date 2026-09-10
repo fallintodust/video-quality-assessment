@@ -148,7 +148,7 @@ def _predict_with_errors(model_id: str, video_path: str, video_name: str) -> dic
                                if m["id"] == model_id),
             "scale": next(m["scale"] for m in model_registry.MODELS
                           if m["id"] == model_id),
-            "score_txt_line": f"video{n}: {round(score, 2)}",
+            "score_txt_line": f"video{n}: {round((score - 1.0) * 25.0, 2)}",
             "issues": diag["issues"],
         }
     except KeyError as e:
@@ -247,11 +247,15 @@ def _parse_extras(raw: str):
 
 
 def _record_score(video_name: str, model_id: str, score: float) -> str:
-    """写入 score.txt 历史；同一文件用不同模型评估会各留一条记录，互不覆盖。"""
+    """写入 score.txt 历史；同一文件用不同模型评估会各留一条记录，互不覆盖。
+
+    任务书量纲：score.txt 为 0~100（模型输出 1~5 → 线性转 0~100，排序不变）。
+    """
+    s100 = (score - 1.0) * 25.0
     with _lock:
         n = len(_score_history) + 1
-        _score_history.append((f"video{n}", model_id, score))
-    return f"video{n}: {round(score, 2)}"
+        _score_history.append((f"video{n}", model_id, s100))
+    return f"video{n}: {round(s100, 2)}"
 
 
 @app.post("/api/diagnose")
